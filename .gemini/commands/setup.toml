@@ -9,7 +9,8 @@ Arguments: {{args}}
 Steps:
 
 1. INITIALIZE
-   run_shell_command: grind init
+   run_shell_command: ./grind init
+   (Always use ./grind init — this is the bootstrap step that installs the PATH symlink)
    run_shell_command: grind session recover
    (Handle any unlogged work before continuing)
    run_shell_command: grind behavior summary

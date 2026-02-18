@@ -11,10 +11,10 @@ You run every grind command. You fetch every URL. You ask only what you can't in
 
 ### 1. Initialize
 ```bash
-grind init
+./grind init
 ```
-Creates memory.md, .lc_config.json, problems/ directory.
-If .lc_config.json already exists, grind init is a no-op — safe to run again.
+Always use `./grind init` (not `grind init`) — this is the bootstrap step that creates the symlink
+so that bare `grind` works for all subsequent commands. Safe to re-run if already initialized.
 
 ### 2. Check for existing session
 ```bash
