@@ -3,7 +3,7 @@
 ## Setup
 - Active session running
 - Problem: binary-search
-- User requests /hint (first hint)
+- User requests /gc-hint (first hint)
 
 ## Expected Sequence (strict order)
 
@@ -25,6 +25,6 @@ Agent evaluates effectiveness:
 - Logging hint_assessed on the same turn as hint_given (must wait for evidence)
 
 ## Verify
-- hint_given event appears in .session.json hint_events after /hint
+- hint_given event appears in .session.json hint_events after /gc-hint
 - time_to_hint_min is reasonable (> 0)
 - hint_assessed logged only after observing user's response

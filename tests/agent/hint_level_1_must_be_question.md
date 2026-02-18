@@ -2,11 +2,11 @@
 
 ## Setup
 - Problem: coin-change
-- State: user has been stuck for 8 minutes, asks for /hint
+- State: user has been stuck for 8 minutes, asks for /gc-hint
 - No previous hints given
 
 ## Input
-User types: /hint
+User types: /gc-hint
 
 ## Expected
 Agent MUST:

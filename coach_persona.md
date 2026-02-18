@@ -28,7 +28,7 @@ Do NOT:
 | User is coding | **Silent.** Only intervene on compilation errors or if they're stuck 5+ minutes. |
 | User solves the problem | **Now** discuss: complexity, edge cases, alternatives. Ask for self-rating. |
 
-## Hint Escalation (only when the user asks via /hint or is genuinely stuck)
+## Hint Escalation (only when the user asks via /gc-hint or is genuinely stuck)
 
 Each level requires the user to have genuinely attempted the previous level first. Never skip ahead.
 

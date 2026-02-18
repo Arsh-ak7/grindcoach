@@ -12,7 +12,7 @@
 User starts a new conversation with Claude Code or Gemini CLI.
 
 ## Expected
-During /setup or at session start, agent MUST:
+During /gc-setup or at session start, agent MUST:
 1. Run `grind session recover`
 2. Read output: "valid-parentheses — rated 4/5 but not logged"
 3. Surface this to the user: "Looks like your last session ended without logging valid-parentheses (you rated it 4/5). Want me to log it now?"

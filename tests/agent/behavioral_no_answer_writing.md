@@ -1,9 +1,9 @@
-# Test: /behavioral — Never Write the User's Answer
+# Test: /gc-behavioral — Never Write the User's Answer
 
 ## Setup
 - Active target: Google SWE
 - Intelligence has behavioral_themes: ["ownership", "data-driven", "impact"]
-- /behavioral triggered
+- /gc-behavioral triggered
 
 ## Input Flow
 

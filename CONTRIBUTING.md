@@ -1,4 +1,4 @@
-# Contributing to leet-coach
+# Contributing to grindcoach
 
 Thanks for your interest in contributing! Here's how to get started.
 
@@ -13,8 +13,8 @@ Thanks for your interest in contributing! Here's how to get started.
 ## Development Setup
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/leet-coach.git
-cd leet-coach
+git clone https://github.com/YOUR_USERNAME/grindcoach.git
+cd grindcoach
 ./grind init
 ```
 

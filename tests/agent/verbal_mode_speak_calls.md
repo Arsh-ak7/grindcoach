@@ -1,9 +1,9 @@
-# Test: /mock --verbal — grind speak Called at Key Points
+# Test: /gc-mock --verbal — grind speak Called at Key Points
 
 ## Setup
 - macOS environment (or Linux with espeak-ng available)
 - Active target: BMW SWE
-- /mock --verbal triggered
+- /gc-mock --verbal triggered
 
 ## Expected Sequence
 
@@ -15,7 +15,7 @@
 6. `grind speak "Sounds interesting. Keep going."` (or similar)
 7. After solution complete: `grind speak "Walk me through your solution as if I'm reading it for the first time."`
 8. Verbal explanation evaluated (clarity, complexity stated, data structures named)
-9. /review flow (with speak calls for prompts)
+9. /gc-review flow (with speak calls for prompts)
 
 ## Prohibited
 - Writing the problem statement as text without calling grind speak
@@ -25,4 +25,4 @@
 ## Verify
 - grind speak called at: problem presentation, mid-check, solution walkthrough request
 - Verbal evaluation criteria noted in review: correctness of naming, complexity stated, explanation structure
-- grind log called at end (same as regular /mock)
+- grind log called at end (same as regular /gc-mock)

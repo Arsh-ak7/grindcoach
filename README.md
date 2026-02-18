@@ -1,19 +1,19 @@
-# leet-coach
+# grindcoach
 
 **Your AI coding coach that never gives you the answer.**
 
 An open-source, CLI-native LeetCode coaching system that uses AI agents (Claude Code or Gemini CLI) as Socratic tutors — not answer machines. Built-in spaced repetition, curated problem tracks, and timed mock interviews.
 
-> Meta, Google, and others now allow AI tools in coding interviews. The question isn't whether to use AI — it's whether you've trained *with* AI in a way that builds real problem-solving skill. That's what leet-coach does.
+> Meta, Google, and others now allow AI tools in coding interviews. The question isn't whether to use AI — it's whether you've trained *with* AI in a way that builds real problem-solving skill. That's what grindcoach does.
 
 ## 30-Second Quickstart
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/leet-coach.git
-cd leet-coach
+git clone https://github.com/YOUR_USERNAME/grindcoach.git
+cd grindcoach
 
 # Open Claude Code or Gemini CLI, then:
-/setup
+/gc-setup
 ```
 
 Full onboarding in one command. The agent runs everything — resume parsing, job description analysis, study plan generation. You don't type a single terminal command.
@@ -21,7 +21,7 @@ Full onboarding in one command. The agent runs everything — resume parsing, jo
 Or skip setup and go straight to a problem:
 
 ```bash
-/solve two-sum cpp
+/gc-solve two-sum cpp
 ```
 
 No pip install, no API keys, no config files. Just Python 3 and an AI agent.
@@ -55,16 +55,16 @@ The `grind` CLI handles everything deterministic — scaffolding, compilation, S
 
 | Command | What it does |
 |---------|-------------|
-| `/setup [--resume <path>] [--jobs <url,...>]` | Full onboarding: resume + targets + study plan |
-| `/solve two-sum cpp` | Scaffold + coach through any problem |
-| `/solve <leetcode-url> python` | Works with ANY LeetCode problem, not just the bank |
-| `/hint` | Progressive hint (question → category → technique → structural → walkthrough) |
-| `/review` | Solution review + rating calibration + immediate logging |
-| `/mock [--topic dp] [--verbal]` | Timed mock interview, optionally spoken aloud |
-| `/behavioral [--company Google]` | STAR behavioral coaching calibrated to company values |
-| `/research [--company BMW]` | Fetch + synthesize company interview intelligence |
-| `/plan [show|today|regenerate]` | Study plan: what to work on and why |
-| `/progress` | Gap scores + behavioral patterns + today's agenda |
+| `/gc-setup [--resume <path>] [--jobs <url,...>]` | Full onboarding: resume + targets + study plan |
+| `/gc-solve two-sum cpp` | Scaffold + coach through any problem |
+| `/gc-solve <leetcode-url> python` | Works with ANY LeetCode problem, not just the bank |
+| `/gc-hint` | Progressive hint (question → category → technique → structural → walkthrough) |
+| `/gc-review` | Solution review + rating calibration + immediate logging |
+| `/gc-mock [--topic dp] [--verbal]` | Timed mock interview, optionally spoken aloud |
+| `/gc-behavioral [--company Google]` | STAR behavioral coaching calibrated to company values |
+| `/gc-research [--company BMW]` | Fetch + synthesize company interview intelligence |
+| `/gc-plan [show|today|regenerate]` | Study plan: what to work on and why |
+| `/gc-progress` | Gap scores + behavioral patterns + today's agenda |
 
 ### CLI Commands (all run by the agent — you rarely type these directly)
 
@@ -93,12 +93,12 @@ Two curated tracks included, with more coming:
 | **Blind 75** | 75 | Classic interview prep essentials |
 | **NeetCode 150** | 150 | Comprehensive topic coverage |
 
-**The bank is guidance, not a gate.** Any LeetCode URL works with `/solve`. The bank just helps with "what should I do next?"
+**The bank is guidance, not a gate.** Any LeetCode URL works with `/gc-solve`. The bank just helps with "what should I do next?"
 
 ## Architecture
 
 ```
-leet-coach/
+grindcoach/
 ├── grind                 # CLI tool (Python 3, zero external deps)
 ├── coach_persona.md      # Socratic coaching rules + anti-spoiler rules
 ├── problems.json         # Problem bank index (Blind 75, NeetCode 150)
@@ -123,7 +123,7 @@ leet-coach/
 
 ## Why Not Just Use ChatGPT?
 
-| | leet-coach | Raw ChatGPT/Claude | LeetCopilot | Anki + LeetCode |
+| | grindcoach | Raw ChatGPT/Claude | LeetCopilot | Anki + LeetCode |
 |---|---|---|---|---|
 | **Socratic coaching** | Strict rules, never reveals answers | Will give answer if you ask | N/A | N/A |
 | **Spaced repetition** | Built-in SM-2 (behavior-driven) | None | None | Manual card creation |

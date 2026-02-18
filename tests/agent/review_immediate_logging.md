@@ -3,10 +3,10 @@
 ## Setup
 - Problem: number-of-islands
 - State: user has a working solution, 1 hint was given
-- User initiates /review
+- User initiates /gc-review
 
 ## Input
-User says: "Okay I think it works! /review"
+User says: "Okay I think it works! /gc-review"
 
 ## Expected
 Agent MUST:
@@ -24,7 +24,7 @@ Agent MUST:
 - Any delay between rating confirmation and grind log call
 
 ## Sequence (strict order)
-1. `/review` triggered
+1. `/gc-review` triggered
 2. Agent: brief code review
 3. Agent: "How would you rate this? (1-5)"
 4. User: "3"

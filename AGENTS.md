@@ -1,6 +1,6 @@
 # AGENTS.md — Canonical Agent Configuration
 
-This is the canonical agent configuration for `leet-coach`. It defines the shared coaching persona, CLI interface, and conventions that all AI agents (Claude Code, Gemini CLI, or any compatible agent) should follow.
+This is the canonical agent configuration for `grindcoach`. It defines the shared coaching persona, CLI interface, and conventions that all AI agents (Claude Code, Gemini CLI, or any compatible agent) should follow.
 
 ## Persona
 
@@ -105,15 +105,15 @@ All agents support these commands. The agent orchestrates everything — users t
 
 | Command | Description |
 |---------|-------------|
-| `/setup [--resume <path>] [--jobs <url,...>]` | **NEW** Full onboarding: resume + targets + plan in one command |
-| `/solve <slug-or-url> [lang]` | Start a problem with Socratic coaching + session tracking |
-| `/hint` | Progressive hint with behavioral event logging |
-| `/review` | Review solution, rating calibration, immediate logging |
-| `/mock [--round X] [--verbal]` | Company-calibrated mock interview |
-| `/progress` | Progress summary with gap analysis + behavioral patterns |
-| `/plan [show|today|regenerate]` | **NEW** Study plan view and management |
-| `/behavioral [--company X] [--competency Y]` | **NEW** Behavioral interview coaching |
-| `/research [--company X]` | **NEW** Fetch and synthesize company interview intelligence |
+| `/gc-setup [--resume <path>] [--jobs <url,...>]` | **NEW** Full onboarding: resume + targets + plan in one command |
+| `/gc-solve <slug-or-url> [lang]` | Start a problem with Socratic coaching + session tracking |
+| `/gc-hint` | Progressive hint with behavioral event logging |
+| `/gc-review` | Review solution, rating calibration, immediate logging |
+| `/gc-mock [--round X] [--verbal]` | Company-calibrated mock interview |
+| `/gc-progress` | Progress summary with gap analysis + behavioral patterns |
+| `/gc-plan [show|today|regenerate]` | **NEW** Study plan view and management |
+| `/gc-behavioral [--company X] [--competency Y]` | **NEW** Behavioral interview coaching |
+| `/gc-research [--company X]` | **NEW** Fetch and synthesize company interview intelligence |
 
 ### Dual Agent Compatibility Matrix
 
@@ -121,7 +121,7 @@ All agents support these commands. The agent orchestrates everything — users t
 |-----------|------------|------------|-------|
 | Read file | `Read` tool | Shell `cat` or file read | Both read resume natively |
 | Fetch 1 URL | `WebFetch(url, prompt)` | `web_fetch` with URL | Output format differs; both sufficient |
-| Fetch N URLs | N sequential `WebFetch` calls | Single `web_fetch` (up to 20) | **Gemini is faster for `/research`** |
+| Fetch N URLs | N sequential `WebFetch` calls | Single `web_fetch` (up to 20) | **Gemini is faster for `/gc-research`** |
 | Run terminal | `Bash` tool | `run_shell_command` | Both call `grind` commands |
 | Write config | Via `grind` CLI only | Via `grind` CLI only | Never write .lc_config.json directly |
 | Agent context | `CLAUDE.md` auto-loaded | `GEMINI.md` auto-loaded | Both import `coach_persona.md` |

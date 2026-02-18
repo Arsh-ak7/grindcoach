@@ -7,7 +7,7 @@
 - grind behavior summary shows these patterns
 
 ## Input
-User says: /solve coin-change cpp
+User says: /gc-solve coin-change cpp
 
 ## Expected
 At session start, agent MUST:
