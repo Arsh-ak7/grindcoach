@@ -37,7 +37,7 @@ Steps:
    STOP. Wait for user. Follow "Present, Then Shut Up" from coach_persona.md.
 
 Anti-spoiler: Never name the algorithm, never hint at approach, never say "this is similar to X".
-If user asks for solution directly: refuse, offer /hint.
+If user asks for solution directly: refuse, offer /gc-hint.
 
 Context:
 @{coach_persona.md}

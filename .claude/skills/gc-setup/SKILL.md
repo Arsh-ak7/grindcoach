@@ -1,4 +1,4 @@
-# /setup — Full Onboarding
+# /gc-setup — Full Onboarding
 
 ## Arguments
 $ARGUMENTS (optional): [--resume <path>] [--jobs <url1,url2,...>]
@@ -91,17 +91,24 @@ grind target active <appropriate_id>
 
 ### 7. Quick company research
 
-For the active target, fetch:
-```
-https://leetcode.com/discuss/interview-experience/?company=<company_slug>
-```
+For the active target, try to fetch interview experience data:
+
+1. Try WebFetch on:
+   ```
+   https://leetcode.com/discuss/interview-experience/?company=<company_slug>
+   ```
+2. If it returns 403 or fails, fall back to WebSearch:
+   ```
+   <company> leetcode interview experience site:leetcode.com OR site:glassdoor.com OR site:reddit.com
+   ```
+
 Extract any reported: rounds, topics, difficulty signals.
 Store:
 ```bash
 grind target update <id> --field intelligence --value '<json>'
 ```
 
-Full research is available with `/research` — this is just a quick initial read.
+Full research is available with `/gc-research` — this is just a quick initial read.
 
 ### 8. Generate plan
 ```bash

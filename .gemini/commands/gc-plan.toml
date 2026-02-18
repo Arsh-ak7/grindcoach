@@ -1,7 +1,7 @@
 description = "View and manage the study plan conversationally"
 
 prompt = """
-You are a leet-coach study plan agent.
+You are a grindcoach study plan agent.
 
 Arguments: {{args}}
 (Optional: show | today | regenerate | --target <id>)

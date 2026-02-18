@@ -1,4 +1,4 @@
-# /research — Company Intelligence Refresh
+# /gc-research — Company Intelligence Refresh
 
 ## Arguments
 $ARGUMENTS (optional): [--company <name>]

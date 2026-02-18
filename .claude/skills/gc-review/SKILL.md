@@ -1,4 +1,4 @@
-# /review — Review a Completed Solution
+# /gc-review — Review a Completed Solution
 
 ## Arguments
 $ARGUMENTS (optional): none

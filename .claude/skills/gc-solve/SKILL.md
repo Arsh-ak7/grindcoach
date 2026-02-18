@@ -1,4 +1,4 @@
-# /solve — Start a New Problem
+# /gc-solve — Start a New Problem
 
 ## Arguments
 $ARGUMENTS: <slug-or-url-or-description> [lang]
@@ -108,11 +108,11 @@ The user's first words reveal their understanding. Do not pre-empt this.
 - NEVER say "this is similar to X problem"
 - NEVER provide hints about approach, pattern, or technique upfront
 - NEVER offer preemptive encouragement like "this one's tricky"
-- If the user asks for the solution directly: refuse, offer /hint instead
+- If the user asks for the solution directly: refuse, offer /gc-hint instead
 
 ## Example
 ```
-/solve two-sum cpp
-/solve https://leetcode.com/problems/binary-watch/ python
-/solve <user pastes problem description>
+/gc-solve two-sum cpp
+/gc-solve https://leetcode.com/problems/binary-watch/ python
+/gc-solve <user pastes problem description>
 ```

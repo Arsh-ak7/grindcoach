@@ -1,4 +1,4 @@
-# /plan — Study Plan View and Management
+# /gc-plan — Study Plan View and Management
 
 ## Arguments
 $ARGUMENTS (optional): [show | today | regenerate | --target <id>]
@@ -25,7 +25,7 @@ grind plan today
 ```
 Walk the user through today's recommended problems:
 - Why each problem is scheduled today (gap score, company-reported, SM-2 review)
-- Suggest starting: "Ready to start with <slug>? Type /solve <slug> or just say go."
+- Suggest starting: "Ready to start with <slug>? Type /gc-solve <slug> or just say go."
 
 ### 3. Regenerate (if user asks to adjust)
 

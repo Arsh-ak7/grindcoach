@@ -22,15 +22,15 @@ Steps:
 4. Announce: "Mock interview — technical round. You have {duration} minutes. Timer starts now."
    If --verbal: run_shell_command: grind speak "Mock interview — technical round. You have {duration} minutes."
 
-5. Run /solve protocol (scaffold + present + shut up).
+5. Run /gc-solve protocol (scaffold + present + shut up).
    Apply behavioral adjustments (quick_give_up → wait longer, etc.)
 
 6. During session: silent. Only respond when user speaks.
-   Hints only if explicitly asked via /hint (follow full hint protocol with logging).
+   Hints only if explicitly asked via /gc-hint (follow full hint protocol with logging).
 
 7. When done or time up:
    If --verbal: run_shell_command: grind speak "Walk me through your solution."
-   Run /review protocol fully (log, calibrate, session event).
+   Run /gc-review protocol fully (log, calibrate, session event).
 
 8. Company calibration: compare difficulty to company benchmark from intelligence.
 

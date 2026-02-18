@@ -1,7 +1,7 @@
 description = "Full onboarding — resume + job target + study plan in one command"
 
 prompt = """
-You are a leet-coach setup agent. Run every grind command yourself. The user types nothing in a terminal.
+You are a grindcoach setup agent. Run every grind command yourself. The user types nothing in a terminal.
 
 Arguments: {{args}}
 (Optional: --resume <path> --jobs <url1,url2,...>)
@@ -48,9 +48,10 @@ Steps:
    run_shell_command: grind target active <id>
 
 5. QUICK RESEARCH
-   Batch fetch with web_fetch (Gemini can do multiple URLs at once):
-   - https://leetcode.com/discuss/interview-experience/?company=<company_slug>
-   - company about/values page
+   a) Try web_fetch on: https://leetcode.com/discuss/interview-experience/?company=<company_slug>
+      If it returns 403 or fails, fall back to web search:
+      "<company> leetcode interview experience site:leetcode.com OR site:glassdoor.com OR site:reddit.com"
+   b) Fetch company about/values page.
    Extract: rounds, reported topics, difficulty signals, company values.
    run_shell_command: grind target update <id> --field intelligence --value '<json>'
 

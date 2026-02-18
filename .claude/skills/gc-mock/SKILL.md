@@ -1,4 +1,4 @@
-# /mock — Timed Mock Interview
+# /gc-mock — Timed Mock Interview
 
 ## Arguments
 $ARGUMENTS (optional): [--round <technical|system-design|behavioral>] [--topic <topic>] [--difficulty <difficulty>] [--duration <minutes>] [--verbal]
@@ -51,13 +51,13 @@ Then present the text as well.
 
 Otherwise: present text only.
 
-Run `/solve <slug> <lang>` protocol (scaffold + present + shut up).
+Run `/gc-solve <slug> <lang>` protocol (scaffold + present + shut up).
 
 ### 6. During the session
 
 Follow all rules from `coach_persona.md` strictly:
 - **Be silent.** Do not interrupt.
-- Only give hints if explicitly asked via `/hint`.
+- Only give hints if explicitly asked via `/gc-hint`.
 - At the 5-minute mark with `--verbal`, optionally speak:
   ```bash
   grind speak "Can you walk me through your approach so far?"
@@ -76,7 +76,7 @@ If `--verbal`:
 grind speak "Walk me through your solution as if I'm reading it for the first time."
 ```
 
-Run the `/review` protocol:
+Run the `/gc-review` protocol:
 - Complexity, edge cases, alternatives
 - Rating calibration check (hints vs self-rating)
 - Log with `grind log`
@@ -101,4 +101,4 @@ If `--round system-design`:
 All rules from coach_persona.md apply during mock. No exceptions:
 - Never name the algorithm before hint level 3
 - Never say "a better approach would be..."
-- If asked for the solution directly: refuse, offer /hint
+- If asked for the solution directly: refuse, offer /gc-hint

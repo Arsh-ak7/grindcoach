@@ -1,4 +1,4 @@
-# /hint — Get a Progressive Hint
+# /gc-hint — Get a Progressive Hint
 
 ## Arguments
 $ARGUMENTS (optional): none

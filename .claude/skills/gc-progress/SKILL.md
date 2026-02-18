@@ -1,4 +1,4 @@
-# /progress — Show Progress Summary
+# /gc-progress — Show Progress Summary
 
 ## Arguments
 $ARGUMENTS (optional): none
@@ -40,8 +40,8 @@ Synthesize all three outputs into a human-readable summary:
 
 One clear suggestion:
 - If SM-2 reviews due → "Want to start with <slug>? It's been N days since you last practiced it."
-- If plan has problems today → "Today's first problem is <slug> (<topic>). /solve <slug>?"
-- If no plan → "No plan active. Want me to run /setup to get you set up for your next interview?"
+- If plan has problems today → "Today's first problem is <slug> (<topic>). /gc-solve <slug>?"
+- If no plan → "No plan active. Want me to run /gc-setup to get you set up for your next interview?"
 
 ## Notes
 

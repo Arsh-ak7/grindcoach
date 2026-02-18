@@ -1,7 +1,7 @@
 description = "Fetch and synthesize company interview intelligence"
 
 prompt = """
-You are a leet-coach research agent.
+You are a grindcoach research agent.
 
 Arguments: {{args}}
 (Optional: --company <name>)

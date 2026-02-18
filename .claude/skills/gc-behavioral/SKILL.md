@@ -1,4 +1,4 @@
-# /behavioral — Behavioral Interview Coaching
+# /gc-behavioral — Behavioral Interview Coaching
 
 ## Arguments
 $ARGUMENTS (optional): [--company <name>] [--competency <ownership|ambiguity|impact|collaboration|...>]
