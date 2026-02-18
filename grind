@@ -411,14 +411,42 @@ def _generate_plan_for_target(config, tid):
     day_num = 1
     today   = datetime.now().date()
 
+    # Round-robin index per weight tier, so topics interleave within the same tier
+    # Group sorted_topics into tiers by weight (rounded to avoid float noise)
+    weight_tiers = {}
+    for t in sorted_topics:
+        w = round(weights.get(t, 0), 1)
+        weight_tiers.setdefault(w, []).append(t)
+    tier_indices = {w: 0 for w in weight_tiers}  # round-robin cursor per tier
+
     def pick_day_problems(n=2):
-        """Pick up to n problems from highest-weight topics with remaining problems."""
+        """Pick up to n problems, one from each weight tier (highest first), round-robining within tiers."""
         picked = []
+        seen_tiers = set()
+        # First pass: one problem from each tier, highest tier first
         for t in sorted_topics:
             if len(picked) >= n:
                 break
-            if topic_queues.get(t):
-                picked.append((topic_queues[t].pop(0), t))
+            w = round(weights.get(t, 0), 1)
+            if w in seen_tiers:
+                continue
+            seen_tiers.add(w)
+            tier = weight_tiers[w]
+            # Try topics in this tier starting from round-robin index
+            start = tier_indices[w]
+            for i in range(len(tier)):
+                candidate = tier[(start + i) % len(tier)]
+                if topic_queues.get(candidate):
+                    picked.append((topic_queues[candidate].pop(0), candidate))
+                    tier_indices[w] = (start + i + 1) % len(tier)
+                    break
+        # Second pass: fill remaining slots from any tier with problems
+        if len(picked) < n:
+            for t in sorted_topics:
+                if len(picked) >= n:
+                    break
+                if topic_queues.get(t) and not any(pp[1] == t for pp in picked):
+                    picked.append((topic_queues[t].pop(0), t))
         return picked
 
     # Coding days
@@ -1491,7 +1519,16 @@ def cmd_plan(args):
             if shown >= 7:
                 break
             focus  = d.get('focus', d.get('type', ''))
-            probs  = ', '.join(d.get('problems', [])) or f"({d['type']})"
+            slugs  = d.get('problems', [])
+            if slugs:
+                # Label each problem with its topic if it differs from focus
+                labeled = []
+                for s in slugs:
+                    t = slug_to_topic(s) or focus
+                    labeled.append(f"{s} [{t}]" if t != focus else s)
+                probs = ', '.join(labeled)
+            else:
+                probs = f"({d['type']})"
             today_marker = f"  {GREEN}← today{RESET}" if d['date'] == today_str else ""
             print(f"  Day {d['day']:2d}  {d['date']}  [ ]  {MAGENTA}{focus}{RESET}: {probs}{today_marker}")
             shown += 1
