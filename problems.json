@@ -59,12 +59,12 @@
         {"slug": "meeting-rooms", "topic": "intervals", "difficulty": "easy", "number": 252},
         {"slug": "meeting-rooms-ii", "topic": "intervals", "difficulty": "medium", "number": 253},
 
-        {"slug": "reverse-linked-list", "topic": "linked-lists", "difficulty": "easy", "number": 206},
-        {"slug": "linked-list-cycle", "topic": "linked-lists", "difficulty": "easy", "number": 141},
-        {"slug": "merge-two-sorted-lists", "topic": "linked-lists", "difficulty": "easy", "number": 21},
-        {"slug": "merge-k-sorted-lists", "topic": "linked-lists", "difficulty": "hard", "number": 23},
-        {"slug": "remove-nth-node-from-end-of-list", "topic": "linked-lists", "difficulty": "medium", "number": 19},
-        {"slug": "reorder-list", "topic": "linked-lists", "difficulty": "medium", "number": 143},
+        {"slug": "reverse-linked-list", "topic": "linked-list", "difficulty": "easy", "number": 206},
+        {"slug": "linked-list-cycle", "topic": "linked-list", "difficulty": "easy", "number": 141},
+        {"slug": "merge-two-sorted-lists", "topic": "linked-list", "difficulty": "easy", "number": 21},
+        {"slug": "merge-k-sorted-lists", "topic": "linked-list", "difficulty": "hard", "number": 23},
+        {"slug": "remove-nth-node-from-end-of-list", "topic": "linked-list", "difficulty": "medium", "number": 19},
+        {"slug": "reorder-list", "topic": "linked-list", "difficulty": "medium", "number": 143},
 
         {"slug": "set-matrix-zeroes", "topic": "matrix", "difficulty": "medium", "number": 73},
         {"slug": "spiral-matrix", "topic": "matrix", "difficulty": "medium", "number": 54},

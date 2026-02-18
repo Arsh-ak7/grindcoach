@@ -14,6 +14,9 @@ behavior_report_*.md
 .claude/settings.local.json
 .gemini/settings.json
 
+# Internal planning artifacts
+docs/
+
 # Build artifacts
 a.out
 *.class

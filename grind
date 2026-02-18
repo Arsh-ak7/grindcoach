@@ -945,28 +945,63 @@ def cmd_target(args):
             return
         skills1 = set(t1.get('required_skills', []))
         skills2 = set(t2.get('required_skills', []))
-        shared  = skills1 & skills2
-        total   = skills1 | skills2
-        overlap = len(shared) / len(total) if total else 0
+        shared    = skills1 & skills2
+        only1     = skills1 - skills2
+        only2     = skills2 - skills1
+        total     = skills1 | skills2
+        overlap   = len(shared) / len(total) if total else 0
         merge_type = 'combined' if overlap >= 0.6 else ('hybrid' if overlap >= 0.3 else 'separate')
         mid = f"merged-{args.id1}-{args.id2}"
+
+        # Inherit interview_date from earliest source; merge company/role labels
+        date1 = t1.get('interview_date', '')
+        date2 = t2.get('interview_date', '')
+        earliest_date = min(d for d in [date1, date2] if d) if (date1 or date2) else ''
+        merged_company = f"{t1.get('company', args.id1)} + {t2.get('company', args.id2)}"
+        merged_role    = t1.get('role', '') or t2.get('role', '')
+        merged_lang    = t1.get('preferred_language') or t2.get('preferred_language') or 'cpp'
+
         targets[mid] = {
-            'id':            mid,
-            'type':          merge_type,
-            'overlap_ratio': round(overlap, 2),
-            'shared_skills': sorted(shared),
-            'sources':       [args.id1, args.id2],
-            'status':        'active',
-            'plan':          {},
+            'id':                mid,
+            'type':              merge_type,
+            'company':           merged_company,
+            'role':              merged_role,
+            'interview_date':    earliest_date,
+            'preferred_language': merged_lang,
+            'overlap_ratio':     round(overlap, 2),
+            'shared_skills':     sorted(shared),
+            f'{args.id1}_only':  sorted(only1),
+            f'{args.id2}_only':  sorted(only2),
+            'required_skills':   sorted(total),
+            'sources':           [args.id1, args.id2],
+            'intelligence':      {},
+            'status':            'active',
+            'plan':              {},
         }
         save_config(config)
+
+        # Output — designed for agent to present clearly
+        c1 = t1.get('company', args.id1)
+        c2 = t2.get('company', args.id2)
         print_success(f"Merged → {mid}  (overlap {overlap:.0%}, type: {merge_type})")
+        print()
+        print(f"  {BOLD}{c1}{RESET}  {DIM}{', '.join(sorted(skills1)) or 'no required_skills set'}{RESET}")
+        print(f"  {BOLD}{c2}{RESET}  {DIM}{', '.join(sorted(skills2)) or 'no required_skills set'}{RESET}")
+        print()
+        if shared:
+            print(f"  {GREEN}Core curriculum:{RESET}  {', '.join(sorted(shared))}")
+        if only1:
+            print(f"  {CYAN}{c1}-specific:{RESET}  {', '.join(sorted(only1))}")
+        if only2:
+            print(f"  {CYAN}{c2}-specific:{RESET}  {', '.join(sorted(only2))}")
+        print()
         if merge_type == 'combined':
-            print_info("High overlap — combined track created.")
+            print_info("High overlap — combined track recommended.")
         elif merge_type == 'hybrid':
-            print_warn("Moderate overlap — agent should decide: combined or separate.")
+            print_warn("Moderate overlap — agent should ask: combined track or separate?")
         else:
             print_warn("Low overlap — separate tracks recommended.")
+        print_info(f"Interview date: {earliest_date or 'not set — set on merged target'}")
         print_info(f"Set active: grind target active {mid}")
 
     else:
@@ -1652,17 +1687,28 @@ def cmd_progress(args):
         if r.get('topic') and r.get('rating'):
             topic_ratings[r['topic']].append(r['rating'])
 
+    def topic_detail(t):
+        rs = topic_ratings.get(t, [])
+        if not rs:
+            return t
+        avg = sum(rs) / len(rs)
+        n   = len(rs)
+        # Flag insufficient data (< 3 problems) even if avg is high
+        note = f", {n} problem{'s' if n != 1 else ''}" + (" — needs more data" if n < 3 else "")
+        return f"{t} (avg {avg:.1f}{note})"
+
     print(f"  {BOLD}Gap analysis:{RESET}")
     if groups['unknown']:
         print(f"    {DIM}Unknown:    {' · '.join(groups['unknown'])}{RESET}")
     if groups['weak']:
-        weak_d = [f"{t} ({sum(topic_ratings[t])/len(topic_ratings[t]):.1f})" if topic_ratings[t] else t
-                  for t in groups['weak']]
+        weak_d = [topic_detail(t) for t in groups['weak']]
         print(f"    {RED}Weak:       {' · '.join(weak_d)}{RESET}")
     if groups['developing']:
-        print(f"    {YELLOW}Developing: {' · '.join(groups['developing'])}{RESET}")
+        dev_d = [topic_detail(t) for t in groups['developing']]
+        print(f"    {YELLOW}Developing: {' · '.join(dev_d)}{RESET}")
     if groups['strong']:
-        print(f"    {GREEN}Strong:     {' · '.join(groups['strong'])}{RESET}")
+        str_d = [topic_detail(t) for t in groups['strong']]
+        print(f"    {GREEN}Strong:     {' · '.join(str_d)}{RESET}")
     print()
 
     # Behavioral patterns (only if ≥5 events)
