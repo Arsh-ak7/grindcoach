@@ -544,6 +544,65 @@ def cmd_init(args):
     print()
 
 
+def cmd_reset(args):
+    data_files = [
+        MEMORY_FILE,
+        os.path.join(PROJECT_ROOT, 'memory_archive.md'),
+        CONFIG_FILE,
+        SESSION_FILE,
+        BEHAVIOR_FILE,
+    ]
+    # Collect behavior reports
+    import glob as _glob
+    data_files += _glob.glob(os.path.join(PROJECT_ROOT, 'behavior_report_*.md'))
+
+    problems_dir = os.path.join(PROJECT_ROOT, 'problems')
+
+    existing_files = [f for f in data_files if os.path.exists(f)]
+    has_problems = os.path.isdir(problems_dir) and bool(os.listdir(problems_dir))
+
+    if not existing_files and not has_problems:
+        print(f"\n  {DIM}Nothing to reset — no user data found.{RESET}\n")
+        return
+
+    print(f"\n  {BOLD}{RED}Reset leet-coach{RESET}")
+    print()
+    print(f"  This will permanently delete all your data:")
+    print()
+    for f in existing_files:
+        print(f"    {DIM}{os.path.basename(f)}{RESET}")
+    if has_problems:
+        print(f"    {DIM}problems/ (all scaffolded solutions){RESET}")
+    print()
+
+    if not args.force:
+        try:
+            answer = input(f"  Type {BOLD}reset{RESET} to confirm, or press Enter to cancel: ").strip()
+        except (KeyboardInterrupt, EOFError):
+            print()
+            print(f"  {DIM}Cancelled.{RESET}\n")
+            return
+        if answer != 'reset':
+            print(f"\n  {DIM}Cancelled.{RESET}\n")
+            return
+
+    removed = []
+    for f in existing_files:
+        os.remove(f)
+        removed.append(os.path.basename(f))
+
+    if has_problems:
+        import shutil as _shutil
+        _shutil.rmtree(problems_dir)
+        removed.append('problems/')
+
+    print()
+    for name in removed:
+        print(f"  {DIM}Removed {name}{RESET}")
+    print()
+    print(f"  {GREEN}Reset complete.{RESET} Run {BOLD}grind init{RESET} to start fresh.\n")
+
+
 def cmd_new(args):
     lang_cfg = {
         'python': {'template': 'templates/python.txt', 'filename': 'solution.py'},
@@ -1788,6 +1847,9 @@ def main():
 
     sub.add_parser('init', help='First-time setup')
 
+    p_reset = sub.add_parser('reset', help='Delete all user data and start fresh')
+    p_reset.add_argument('--force', action='store_true', help='Skip confirmation prompt')
+
     p_new = sub.add_parser('new', help='Scaffold a problem workspace')
     p_new.add_argument('slug')
     p_new.add_argument('lang', choices=['python', 'cpp', 'java'])
@@ -1903,6 +1965,7 @@ def main():
     parsed = parser.parse_args()
     commands = {
         'init':     cmd_init,
+        'reset':    cmd_reset,
         'new':      cmd_new,
         'run':      cmd_run,
         'log':      cmd_log,
