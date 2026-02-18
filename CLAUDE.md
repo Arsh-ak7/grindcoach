@@ -14,26 +14,53 @@ An AI-powered LeetCode coaching system with a CLI tool (`grind`) that scaffolds 
 # First-time setup
 grind init
 
-# Create a new problem (creates problems/<slug>/solution.<ext> + input.txt)
-grind new <slug> <lang>    # lang: cpp, python, java
+# Core
+grind new <slug> <lang>                                          # Scaffold a problem (cpp, python, java)
+grind run <slug>                                                 # Compile and run (reads input.txt)
+grind log <slug> <rating> [--time <min>] [--hints <n>]          # Log with SM-2 spaced repetition
+grind list [--track <name>] [--topic <t>] [--diff <d>]          # Browse problem bank
+grind track [name]                                               # View or switch active track
+grind progress                                                   # Gap scores + behavioral patterns
+grind archive                                                    # Archive old memory rows
 
-# Run a solution (auto-reads from input.txt sidecar if non-empty)
-grind run <slug>
+# Target management
+grind target add --company <name> --role <title> --date <YYYY-MM-DD> [--url <url>] [--lang cpp|python|java]
+grind target list
+grind target active [id]
+grind target remove <id>
+grind target show [id]
+grind target update <id> --field <field> --value '<json_or_string>'
+grind target merge <id1> <id2>                                   # combined/hybrid/separate
 
-# Log a solved problem with self-assessment (writes to memory.md)
-grind log <slug> <rating> [--time <minutes>] [--hints <count>] [--topic <topic>] [--difficulty <diff>]
+# Resume
+grind resume set --path <path> [--profile '<json>']             # Agent parses, passes JSON
+grind resume show
+grind resume clear
 
-# Browse problem bank (grouped by topic, shows solved/unsolved)
-grind list [--track <name>] [--topic <topic>] [--difficulty <diff>]
+# Session (hint event tracking)
+grind session start [--target <id>]
+grind session event <slug> <event_type> [--data '<json>']
+grind session end                                                # Flushes hint events → behavior.jsonl
+grind session recover                                            # Detect unlogged work
 
-# View or switch active track
-grind track [name]
+# Behavioral analytics
+grind behavior summary                                           # Read at session start
+grind behavior report [--topic <t>] [--slug <s>]
+grind behavior export
+grind behavior reset [--force]
 
-# Show progress summary (due reviews, streak, track-aware suggestions)
-grind progress
+# Gap analysis
+grind gap show
+grind gap set <topic> <weak|strong|unknown>
 
-# Archive old rows from memory.md to memory_archive.md
-grind archive
+# Study plan
+grind plan generate [--target <id>]
+grind plan show [--target <id>]
+grind plan today [--target <id>]
+grind plan regenerate [--target <id>]
+
+# TTS
+grind speak "<text>" [--rate <wpm>]                             # macOS: say | Linux: espeak-ng
 ```
 
 - C++ is compiled with `g++ -std=c++17`
@@ -42,10 +69,14 @@ grind archive
 
 ## Architecture
 
-- **`grind`** — Python 3 CLI (`init`, `new`, `run`, `log`, `list`, `track`, `progress`, `archive`). Handles scaffolding from templates, compilation, execution, and spaced repetition tracking.
-- **`coach_persona.md`** — Shared Socratic coaching persona (imported above). Defines coaching rules, hint progression, and rating scale.
+- **`grind`** — Python 3 CLI. Zero external dependencies. All subcommands: init, new, run, log, list, track, progress, archive, target, resume, session, behavior, gap, plan, speak.
+- **`coach_persona.md`** — Shared Socratic coaching persona (imported above). Defines coaching rules, hint progression, anti-spoiler rules, and rating scale.
+- **`AGENTS.md`** — Canonical agent config with full CLI reference and dual-agent compatibility matrix.
 - **`problems.json`** — Problem bank index (Blind 75, NeetCode 150). Navigation only — problem descriptions are fetched live.
-- **`memory.md`** — Spaced repetition progress table. Written exclusively by `grind log`. Read by agents and `grind progress`.
+- **`memory.md`** — Spaced repetition progress table. Written atomically by `grind log`. Source of truth for gap analysis.
+- **`.lc_config.json`** — User config: active track, active target, targets, resume, gap_overrides. Gitignored.
+- **`.session.json`** — Ephemeral session state with hint events. Deleted on clean exit. Gitignored.
+- **`behavior.jsonl`** — Append-only hint event log. Flushed from session by `grind session end`. Gitignored.
 - **`templates/`** — Starter files (`cpp.txt`, `python.txt`, `java.txt`) with placeholders.
 - **`utils/`** — Language-specific helpers:
   - `cpp/lc_utils.h` — `operator<<` overloads for STL containers, `DBG()` macro, `read_line()`, `parse_vector<T>()`
