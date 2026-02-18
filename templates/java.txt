@@ -1,0 +1,16 @@
+// Problem: {{PROBLEM_NAME}}
+// URL: https://leetcode.com/problems/{{PROBLEM_SLUG}}/
+
+package problems.{{PROBLEM_FOLDER}};
+
+import java.util.*;
+import utils.java.LcUtils;
+
+public class {{PROBLEM_CLASS}} {
+
+    // TODO: Add Solution class with method signature from LeetCode
+
+    public static void main(String[] args) {
+        // TODO: Add test cases
+    }
+}

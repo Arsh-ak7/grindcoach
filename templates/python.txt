@@ -1,0 +1,22 @@
+import sys
+import os
+import json
+
+# Add project root to path for imports
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+from utils.python.lc_utils import ListNode, TreeNode, debug, parse
+from typing import List, Optional, Dict, Set
+
+# Problem: {{PROBLEM_NAME}}
+# URL: https://leetcode.com/problems/{{PROBLEM_SLUG}}/
+
+class Solution:
+    pass  # TODO: Add method signature from LeetCode
+
+if __name__ == "__main__":
+    solution = Solution()
+
+    # TODO: Add test cases
+    # Example:
+    #   print(solution.methodName(args))

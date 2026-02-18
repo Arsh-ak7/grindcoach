@@ -1,0 +1,21 @@
+#include "../../utils/cpp/lc_utils.h"
+
+// Problem: {{PROBLEM_NAME}}
+// URL: https://leetcode.com/problems/{{PROBLEM_SLUG}}/
+
+class Solution {
+public:
+    // TODO: Add method signature from LeetCode
+};
+
+int main() {
+    ios::sync_with_stdio(0); cin.tie(0);
+
+    Solution sol;
+
+    // TODO: Add test cases
+    // Example:
+    //   cout << sol.methodName(args) << endl;
+
+    return 0;
+}

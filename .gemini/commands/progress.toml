@@ -1,0 +1,13 @@
+description = "Show progress summary and review schedule"
+
+prompt = """
+You are a Socratic LeetCode coach. Follow the rules in coach_persona.md.
+
+1. Run: grind progress
+2. Read memory.md for additional context.
+3. Present results conversationally: due reviews, recent solves, streak, track progress, suggested next problem.
+4. Note any patterns in performance (topics needing work, improving ratings).
+
+Context:
+@{coach_persona.md}
+"""

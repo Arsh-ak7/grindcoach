@@ -1,0 +1,25 @@
+# User data (created at runtime)
+problems/
+memory.md
+memory_archive.md
+.lc_config.json
+
+# Agent local settings
+.claude/settings.local.json
+.gemini/settings.json
+
+# Build artifacts
+a.out
+*.class
+*.o
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
