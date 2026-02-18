@@ -517,6 +517,27 @@ def _generate_plan_for_target(config, tid):
 # Commands
 # ---------------------------------------------------------------------------
 
+def _grind_on_path():
+    """Return True if `grind` resolves to this script on PATH."""
+    import shutil
+    found = shutil.which('grind')
+    if not found:
+        return False
+    return os.path.realpath(found) == os.path.realpath(os.path.abspath(__file__))
+
+
+def _install_to_path():
+    """Symlink grind into ~/.local/bin (created if missing). Returns (ok, message)."""
+    local_bin = os.path.expanduser('~/.local/bin')
+    os.makedirs(local_bin, exist_ok=True)
+    dest = os.path.join(local_bin, 'grind')
+    src = os.path.abspath(__file__)
+    if os.path.lexists(dest):
+        os.remove(dest)
+    os.symlink(src, dest)
+    return dest, local_bin
+
+
 def cmd_init(args):
     created = []
     if not os.path.exists(MEMORY_FILE):
@@ -533,6 +554,29 @@ def cmd_init(args):
     if created:
         for f in created:
             print(f"  {DIM}Created {f}{RESET}")
+        print()
+
+    # PATH setup — only shown when grind isn't already accessible
+    if not _grind_on_path():
+        print(f"  {BOLD}{YELLOW}PATH setup{RESET}")
+        try:
+            dest, local_bin = _install_to_path()
+            print(f"  {DIM}Symlinked grind → {dest}{RESET}")
+            # Check if local_bin is already on PATH
+            path_dirs = os.environ.get('PATH', '').split(':')
+            if local_bin not in path_dirs:
+                shell = os.path.basename(os.environ.get('SHELL', 'bash'))
+                rc = '.zshrc' if shell == 'zsh' else '.bashrc'
+                print()
+                print(f"  Add {BOLD}~/.local/bin{RESET} to your PATH then restart your terminal:")
+                print()
+                print(f"    {CYAN}echo 'export PATH=\"$HOME/.local/bin:$PATH\"' >> ~/{rc}{RESET}")
+                print(f"    {CYAN}source ~/{rc}{RESET}")
+        except OSError as e:
+            print(f"  {DIM}Could not symlink automatically ({e}).{RESET}")
+            print(f"  Add this to your shell config manually:")
+            print()
+            print(f"    {CYAN}export PATH=\"{PROJECT_ROOT}:$PATH\"{RESET}")
         print()
 
     print(f"  {BOLD}Quick start (agent commands — no CLI needed):{RESET}")
