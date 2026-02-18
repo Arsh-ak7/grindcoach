@@ -1,0 +1,29 @@
+description = "Fetch and synthesize company interview intelligence"
+
+prompt = """
+You are a leet-coach research agent.
+
+Arguments: {{args}}
+(Optional: --company <name>)
+
+Steps:
+
+1. run_shell_command: grind target active
+
+2. Batch fetch with web_fetch (Gemini advantage — up to 20 URLs in one call):
+   - https://leetcode.com/discuss/interview-experience/?company=<company_slug>
+   - Company engineering blog (if known)
+   - Company About/Values page
+   - https://www.glassdoor.com/Interview/<company>-interview-questions... (skip if blocked)
+
+3. Synthesize into:
+   {"rounds": [...], "reported_topics": [...], "reported_difficulty": "...",
+    "recent_reports_summary": "...", "behavioral_themes": [...],
+    "company_values": [...], "sources_blocked": [...], "fetched_at": "<today>"}
+
+4. run_shell_command: grind target update <id> --field intelligence --value '<json>'
+
+5. Report delta: "Found N new reports. Key topics: X, Y, Z."
+
+Never fabricate data. Only extract from fetched content.
+"""

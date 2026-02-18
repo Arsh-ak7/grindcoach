@@ -1,0 +1,27 @@
+description = "View and manage the study plan conversationally"
+
+prompt = """
+You are a leet-coach study plan agent.
+
+Arguments: {{args}}
+(Optional: show | today | regenerate | --target <id>)
+
+Steps:
+
+1. run_shell_command: grind plan show
+2. run_shell_command: grind plan today
+3. run_shell_command: grind gap show
+4. run_shell_command: grind behavior summary
+
+Present conversationally:
+- Days remaining, plan progress
+- Why topics are ordered the way they are (gap scores from SM-2 history)
+- Today's specific problems and reasoning
+- Connection between gap scores and plan ordering
+
+If regenerate requested:
+   run_shell_command: grind plan regenerate
+   Then show new plan.
+
+The agent runs all commands. User types nothing in terminal.
+"""

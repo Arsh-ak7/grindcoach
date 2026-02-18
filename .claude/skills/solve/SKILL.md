@@ -7,71 +7,112 @@ $ARGUMENTS: <slug-or-url-or-description> [lang]
   1. **LeetCode slug** (e.g. `two-sum`) — looks up in `problems.json`, fetches from LeetCode
   2. **LeetCode URL** (e.g. `https://leetcode.com/problems/valid-parentheses/`) — works for ANY problem
   3. **Inline description** — user pastes a problem description directly
-- Second argument (optional): Language — `cpp`, `python`, or `java`. Defaults to `cpp`.
+- Second argument (optional): Language — `cpp`, `python`, or `java`. Defaults to active target's `preferred_language`, then `cpp`.
 
 ## Instructions
 
-1. **Determine input mode:**
-   - If argument looks like a URL (`https://`), extract the slug from it.
-   - If argument looks like a slug (lowercase-with-dashes), use it directly.
-   - If neither, treat as an inline problem description — skip fetching, use the description as-is.
+### 0. Session and behavior setup (before anything else)
 
-2. **Look up metadata** from `problems.json` (if slug matches a problem in any track). Get topic, difficulty, LC number.
+Check if a session is running. If not:
+```bash
+grind session start
+```
 
-3. **Fetch the problem description** from `https://leetcode.com/problems/<slug>/` using web fetch. If blocked, try `https://algo.monster/liteproblems/<number>` as fallback. Skip this step for inline descriptions.
+Read the behavior model for this session:
+```bash
+grind behavior summary
+```
+Internalize the output. Adjust your coaching stance:
+- `quick_give_up` on a topic → wait longer before engaging after silence
+- `hint_positive` → hints are effective; honor requests promptly
+- `hint_negative` → hints aren't helping; step further back when asked
+- `overconfident` → ask calibration question after user provides self-rating
+- `chronic_hint` → treat topic as more critical in today's plan
 
-4. **Scaffold the problem:**
-   ```bash
-   grind new <slug> <lang>
-   ```
+Read active target for language and seniority context:
+```bash
+grind target active
+grind resume show
+```
+Use `preferred_language` from target (or resume signal) as default language if not specified.
+Use `seniority_estimate` from resume to calibrate patience:
+- `senior`/`staff` → strict silence; no scaffolding hints
+- `mid` → silence; shorter patience
+- `junior` → silence; offer "Any questions about the problem?" slightly sooner
 
-5. **CRITICAL — Edit the solution file** to match the actual problem:
-   - Read the scaffolded solution file from `problems/<slug_underscored>/solution.<ext>`
-   - Replace the `TODO` placeholder in the `Solution` class with the **exact method signature** from LeetCode (function name, parameter types, return type). Leave the body as a TODO comment or `pass`/`return default`.
-   - Replace the `TODO` test cases in `main` with **one working example** from the problem, calling the Solution method with the example input and printing the result.
-   - Do NOT write any solution logic — only the signature and test harness.
+### 1. Determine input mode
 
-6. **Write a README.md** in the problem folder (`problems/<slug_underscored>/README.md`) containing:
-   - Problem title and difficulty
-   - Problem description (cleaned up from the web fetch)
-   - Example inputs/outputs
-   - Constraints
+- If argument is a URL (`https://`): extract the slug from the path
+- If argument looks like a slug (lowercase-with-dashes, no spaces): use directly
+- Otherwise: treat as an inline description
 
-7. **Check `memory.md`** — has the user attempted this problem before? If so, mention it.
+### 2. Look up metadata
 
-8. **Present the problem** per `coach_persona.md`:
-   - Show the problem statement, constraints, and one example clearly
-   - Optionally ask: "Any questions about the problem?"
-   - **Say nothing else.** No leading questions, no hints about approach or technique. Wait for the user to speak first.
+If slug mode: look up in `problems.json` for topic, difficulty, LC number.
+
+### 3. Fetch problem description
+
+Fetch from `https://leetcode.com/problems/<slug>/` using WebFetch.
+If blocked, try `https://algo.monster/liteproblems/<number>` as fallback.
+Skip for inline descriptions.
+
+### 4. Scaffold the problem
+```bash
+grind new <slug> <lang>
+```
+
+### 5. Edit the solution file (CRITICAL)
+
+Read the scaffolded solution file from `problems/<slug_underscored>/solution.<ext>`.
+Replace the `TODO` placeholder with:
+- **Exact method signature** from LeetCode (function name, parameter types, return type)
+- Body: `// TODO` comment only — no solution logic, no hints, no algorithm names
+- Replace test cases in `main` with one working example from the problem
+
+Do NOT write any solution logic.
+
+### 6. Write a README.md
+
+In `problems/<slug_underscored>/README.md`:
+- Problem title and difficulty
+- Problem description (cleaned from web fetch)
+- Example inputs/outputs
+- Constraints
+
+### 7. Check memory.md
+
+Has the user attempted this problem before? If so, mention it briefly.
+
+### 8. Record session event
+```bash
+grind session event <slug> presented
+```
+
+### 9. Check plan context
+```bash
+grind plan today
+```
+Note internally if this problem is on today's plan (affects urgency framing in review).
+
+### 10. Present the problem (Socratic rules — coach_persona.md)
+
+Show: problem statement, constraints, one example. Nothing else.
+Optionally: "Any questions about the problem?"
+**Stop. Wait. Say nothing more.**
+
+The user's first words reveal their understanding. Do not pre-empt this.
+
+## Anti-spoiler rules (enforced at all times)
+
+- NEVER name the algorithm or data structure before the user mentions it
+- NEVER say "this is similar to X problem"
+- NEVER provide hints about approach, pattern, or technique upfront
+- NEVER offer preemptive encouragement like "this one's tricky"
+- If the user asks for the solution directly: refuse, offer /hint instead
 
 ## Example
 ```
 /solve two-sum cpp
 /solve https://leetcode.com/problems/binary-watch/ python
 /solve <user pastes problem description>
-```
-
-Expected result in `solution.cpp`:
-```cpp
-#include "../../utils/cpp/lc_utils.h"
-
-// Problem: binary-watch
-// URL: https://leetcode.com/problems/binary-watch/
-
-class Solution {
-public:
-    vector<string> readBinaryWatch(int turnedOn) {
-        // TODO: Implement solution
-        return {};
-    }
-};
-
-int main() {
-    ios::sync_with_stdio(0); cin.tie(0);
-
-    Solution sol;
-    cout << sol.readBinaryWatch(1) << endl;
-
-    return 0;
-}
 ```

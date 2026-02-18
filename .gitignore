@@ -1,8 +1,14 @@
 # User data (created at runtime)
 problems/
 memory.md
+memory.md.bak
 memory_archive.md
 .lc_config.json
+
+# Session and behavioral data (private — never committed)
+.session.json
+behavior.jsonl
+behavior_report_*.md
 
 # Agent local settings
 .claude/settings.local.json
