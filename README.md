@@ -82,6 +82,8 @@ grind behavior summary                                     # Behavioral coaching
 grind gap show / set <topic> <weak|strong>                 # Gap analysis
 grind plan generate / show / today                         # Study plan
 grind speak "<text>"                                       # TTS (macOS/Linux/Windows)
+grind behavior reset [--force]                             # Clear behavior event log
+grind reset [--force]                                      # Wipe all user data and start fresh
 ```
 
 ## Problem Bank

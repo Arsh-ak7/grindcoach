@@ -61,6 +61,7 @@ grind plan regenerate [--target <id>]
 
 # TTS
 grind speak "<text>" [--rate <wpm>]                             # macOS: say | Linux: espeak-ng
+grind reset [--force]                                           # Wipe ALL user data and start fresh
 ```
 
 - C++ is compiled with `g++ -std=c++17`
@@ -69,7 +70,7 @@ grind speak "<text>" [--rate <wpm>]                             # macOS: say | L
 
 ## Architecture
 
-- **`grind`** — Python 3 CLI. Zero external dependencies. All subcommands: init, new, run, log, list, track, progress, archive, target, resume, session, behavior, gap, plan, speak.
+- **`grind`** — Python 3 CLI. Zero external dependencies. All subcommands: init, new, run, log, list, track, progress, archive, target, resume, session, behavior, gap, plan, speak, reset.
 - **`coach_persona.md`** — Shared Socratic coaching persona (imported above). Defines coaching rules, hint progression, anti-spoiler rules, and rating scale.
 - **`AGENTS.md`** — Canonical agent config with full CLI reference and dual-agent compatibility matrix.
 - **`problems.json`** — Problem bank index (Blind 75, NeetCode 150). Navigation only — descriptions fetched live.

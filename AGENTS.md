@@ -76,6 +76,7 @@ grind plan regenerate [--target <id>]                  # Rebuild preserving comp
 **TTS:**
 ```bash
 grind speak "<text>" [--rate <wpm>]                    # macOS: say | Linux: espeak-ng | Windows: PowerShell
+grind reset [--force]                                  # Wipe ALL user data (memory, config, sessions, problems/)
 ```
 
 ### Architecture
