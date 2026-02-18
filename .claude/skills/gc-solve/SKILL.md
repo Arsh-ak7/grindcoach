@@ -64,10 +64,23 @@ grind new <slug> <lang>
 ### 5. Edit the solution file (CRITICAL)
 
 Read the scaffolded solution file from `problems/<slug_underscored>/solution.<ext>`.
-Replace the `TODO` placeholder with:
-- **Exact method signature** from LeetCode (function name, parameter types, return type)
-- Body: `// TODO` comment only — no solution logic, no hints, no algorithm names
-- Replace test cases in `main` with one working example from the problem
+Make exactly three edits — nothing more:
+
+**a) Method signature** — replace the `// TODO: Add method signature` line with the exact
+signature from LeetCode: correct function name, parameter names and types, return type.
+Leave the body as a single `// TODO` comment. No logic, no hints, no algorithm names.
+
+**b) Test cases in main** — replace the `// TODO: Add test cases` block with Example 1
+from the problem, written as runnable code:
+- Declare the inputs as local variables with the example values
+- Call `sol.methodName(...)` (C++) or `solution.methodName(...)` (Python)
+- Print the result with `cout <<` / `print()`
+- Add a comment with the expected output: `// expected: <value>`
+
+**c) input.txt** — if the problem passes input via stdin (i.e. `main` reads with
+`cin` / `read_line()` / `parse_vector()`), write Example 1's input into `input.txt`
+in the same format the solution reads. If `main` uses hardcoded variables (as the
+template does), leave `input.txt` empty.
 
 Do NOT write any solution logic.
 

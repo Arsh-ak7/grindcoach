@@ -26,9 +26,16 @@ Steps:
 2. Look up metadata in problems.json (topic, difficulty) if slug matches.
 3. Fetch problem: web_fetch up to 20 URLs in one call if needed. Fallback to algo.monster.
 4. run_shell_command: grind new <slug> <lang>
-5. CRITICAL — Edit the scaffolded file:
-   - Exact method signature from LeetCode
-   - No solution logic — only signature and test harness
+5. CRITICAL — Edit the scaffolded file (three required changes):
+   a) Method signature: replace TODO placeholder with the exact signature from LeetCode
+      (correct function name, param names/types, return type). Body = single // TODO only.
+   b) Test cases: replace the // TODO: Add test cases block with Example 1 as runnable code:
+      - Declare inputs as local variables with the example values
+      - Call sol.methodName(...) / solution.methodName(...)
+      - Print the result; add a comment: // expected: <value>
+   c) input.txt: if the solution reads from stdin, write Example 1's input there.
+      If main uses hardcoded variables (default template), leave input.txt empty.
+   No solution logic — only signature and test harness.
 6. Write README.md with problem description, examples, constraints.
 7. run_shell_command: grind session event <slug> presented
 8. run_shell_command: grind plan today
