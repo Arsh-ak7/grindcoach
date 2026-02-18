@@ -1,61 +1,66 @@
 #!/usr/bin/env python3
+"""
+grind — leet-coach CLI
+Zero external dependencies. Python 3 stdlib only.
+
+Slug convention:
+  User-facing / LeetCode canonical: hyphens  → two-sum
+  Internal folders / Java packages: underscores → two_sum
+  Conversion is transparent via slug_to_folder(). Users always type hyphens.
+"""
 
 import os
 import sys
 import json
+import math
+import shutil
+import platform
 import argparse
 import subprocess
-import math
 import time as time_module
 from datetime import datetime, timedelta
+from collections import defaultdict
 
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-MEMORY_FILE = os.path.join(PROJECT_ROOT, 'memory.md')
-ARCHIVE_FILE = os.path.join(PROJECT_ROOT, 'memory_archive.md')
-CONFIG_FILE = os.path.join(PROJECT_ROOT, '.lc_config.json')
+PROJECT_ROOT  = os.path.dirname(os.path.abspath(__file__))
+MEMORY_FILE   = os.path.join(PROJECT_ROOT, 'memory.md')
+ARCHIVE_FILE  = os.path.join(PROJECT_ROOT, 'memory_archive.md')
+CONFIG_FILE   = os.path.join(PROJECT_ROOT, '.lc_config.json')
 PROBLEMS_FILE = os.path.join(PROJECT_ROOT, 'problems.json')
+SESSION_FILE  = os.path.join(PROJECT_ROOT, '.session.json')
+BEHAVIOR_FILE = os.path.join(PROJECT_ROOT, 'behavior.jsonl')
 ARCHIVE_THRESHOLD = 50
 
-# ANSI Colors
-CYAN = '\033[96m'
-GREEN = '\033[92m'
-RED = '\033[91m'
-YELLOW = '\033[93m'
+# ANSI colors
+CYAN    = '\033[96m'
+GREEN   = '\033[92m'
+RED     = '\033[91m'
+YELLOW  = '\033[93m'
 MAGENTA = '\033[95m'
-BOLD = '\033[1m'
-DIM = '\033[2m'
-RESET = '\033[0m'
+BOLD    = '\033[1m'
+DIM     = '\033[2m'
+RESET   = '\033[0m'
 
 
-def print_info(msg):
-    print(f"{CYAN}[INFO] {msg}{RESET}")
+def print_info(msg):    print(f"{CYAN}[INFO] {msg}{RESET}")
+def print_success(msg): print(f"{GREEN}[OK] {msg}{RESET}")
+def print_error(msg):   print(f"{RED}[ERROR] {msg}{RESET}", file=sys.stderr)
+def print_warn(msg):    print(f"{YELLOW}[WARN] {msg}{RESET}")
 
 
-def print_success(msg):
-    print(f"{GREEN}[OK] {msg}{RESET}")
-
-
-def print_error(msg):
-    print(f"{RED}[ERROR] {msg}{RESET}", file=sys.stderr)
-
-
-def print_warn(msg):
-    print(f"{YELLOW}[WARN] {msg}{RESET}")
-
+# ---------------------------------------------------------------------------
+# Slug / path helpers
+# ---------------------------------------------------------------------------
 
 def slug_to_folder(slug):
-    """Convert a slug like 'two-sum' to folder name 'two_sum'."""
+    """'two-sum' → 'two_sum'. Hyphens invalid in Java package names."""
     return slug.replace('-', '_')
 
 
 def resolve_problem_dir(slug):
-    """Resolve a slug to its problem directory path."""
-    folder = slug_to_folder(slug)
-    return os.path.join(PROJECT_ROOT, 'problems', folder)
+    return os.path.join(PROJECT_ROOT, 'problems', slug_to_folder(slug))
 
 
 def find_solution_file(problem_dir):
-    """Find the solution file in a problem directory."""
     for name in ['solution.cpp', 'solution.py', 'Solution.java']:
         path = os.path.join(problem_dir, name)
         if os.path.exists(path):
@@ -63,51 +68,435 @@ def find_solution_file(problem_dir):
     return None
 
 
-# --- Config ---
+# ---------------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------------
 
 def load_config():
-    """Load config from .lc_config.json."""
     if os.path.exists(CONFIG_FILE):
-        with open(CONFIG_FILE, 'r') as f:
+        with open(CONFIG_FILE) as f:
             return json.load(f)
     return {"active_track": "blind75"}
 
 
 def save_config(config):
-    """Save config to .lc_config.json."""
     with open(CONFIG_FILE, 'w') as f:
         json.dump(config, f, indent=2)
         f.write('\n')
 
 
-# --- Problem Bank ---
+# ---------------------------------------------------------------------------
+# Problem bank
+# ---------------------------------------------------------------------------
 
 def load_problems():
-    """Load problems.json."""
     if not os.path.exists(PROBLEMS_FILE):
         print_error(f"Problem bank not found: {PROBLEMS_FILE}")
         return None
-    with open(PROBLEMS_FILE, 'r') as f:
+    with open(PROBLEMS_FILE) as f:
         return json.load(f)
 
 
-# --- Commands ---
+def get_all_topics():
+    """All unique topics across all tracks, sorted."""
+    bank = load_problems()
+    if not bank:
+        return []
+    topics = set()
+    for td in bank.get('tracks', {}).values():
+        for p in td.get('problems', []):
+            if p.get('topic'):
+                topics.add(p['topic'])
+    return sorted(topics)
+
+
+def get_problems_by_topic():
+    """topic → [problem dicts], deduplicated by slug."""
+    bank = load_problems()
+    if not bank:
+        return {}
+    seen = set()
+    by_topic = defaultdict(list)
+    for td in bank.get('tracks', {}).values():
+        for p in td.get('problems', []):
+            if p['slug'] not in seen:
+                seen.add(p['slug'])
+                by_topic[p.get('topic', 'other')].append(p)
+    return dict(by_topic)
+
+
+def slug_to_topic(slug):
+    """Look up a slug's topic from problems.json."""
+    bank = load_problems()
+    if not bank:
+        return ''
+    for td in bank.get('tracks', {}).values():
+        for p in td.get('problems', []):
+            if p['slug'] == slug:
+                return p.get('topic', '')
+    return ''
+
+
+# ---------------------------------------------------------------------------
+# Memory  (atomic writes)
+# ---------------------------------------------------------------------------
+
+def parse_memory():
+    if not os.path.exists(MEMORY_FILE):
+        return []
+    with open(MEMORY_FILE) as f:
+        lines = f.readlines()
+    rows = []
+    in_table = False
+    for line in lines:
+        s = line.strip()
+        if s.startswith('| Slug'):
+            in_table = True
+            continue
+        if in_table and s.startswith('|---'):
+            continue
+        if in_table and s.startswith('|'):
+            cells = [c.strip() for c in s.split('|')[1:-1]]
+            if len(cells) >= 10:
+                rows.append({
+                    'slug':        cells[0],
+                    'topic':       cells[1],
+                    'difficulty':  cells[2],
+                    'date':        cells[3],
+                    'rating':      int(cells[4]) if cells[4] else 0,
+                    'time':        cells[5],
+                    'hints':       int(cells[6]) if cells[6] else 0,
+                    'ease':        float(cells[7]) if cells[7] else 2.5,
+                    'interval':    cells[8],
+                    'next_review': cells[9],
+                })
+        elif in_table and not s.startswith('|'):
+            in_table = False
+    return rows
+
+
+def write_memory(rows):
+    """Atomic write: write to .tmp then os.replace, keep rolling .bak."""
+    tmp = MEMORY_FILE + '.tmp'
+    lines = [
+        '# LeetCode Progress\n', '\n',
+        '| Slug | Topic | Difficulty | Date | Rating | Time | Hints | Ease | Interval | Next Review |\n',
+        '|------|-------|------------|------|--------|------|-------|------|----------|-------------|\n',
+    ]
+    for r in rows:
+        lines.append(
+            f"| {r['slug']} | {r['topic']} | {r['difficulty']} | {r['date']} "
+            f"| {r['rating']} | {r['time']} | {r['hints']} | {r['ease']:.1f} "
+            f"| {r['interval']} | {r['next_review']} |\n"
+        )
+    with open(tmp, 'w') as f:
+        f.writelines(lines)
+    os.replace(tmp, MEMORY_FILE)                        # atomic on POSIX + Windows
+    shutil.copy2(MEMORY_FILE, MEMORY_FILE + '.bak')    # rolling backup
+
+
+# ---------------------------------------------------------------------------
+# SM-2 spaced repetition
+# ---------------------------------------------------------------------------
+
+def sm2_calculate(rating, prev_ease=2.5, prev_interval=0, repetition=0):
+    """Returns (new_ease, new_interval, new_repetition). Rating 1–5."""
+    new_ease = prev_ease + (0.1 - (5 - rating) * (0.08 + (5 - rating) * 0.02))
+    new_ease = max(1.3, new_ease)
+    if rating < 3:
+        return new_ease, 1, 0
+    new_rep = repetition + 1
+    if new_rep == 1:   new_interval = 1
+    elif new_rep == 2: new_interval = 6
+    else:              new_interval = math.ceil(prev_interval * new_ease)
+    return new_ease, new_interval, new_rep
+
+
+# ---------------------------------------------------------------------------
+# Gap analysis  (behavior-driven, not resume-derived)
+# ---------------------------------------------------------------------------
+
+def compute_gap_scores(rows, overrides=None):
+    """Classify each topic as unknown / weak / developing / strong."""
+    overrides = overrides or {}
+    topic_ratings = defaultdict(list)
+    for r in rows:
+        if r.get('topic') and r.get('rating'):
+            topic_ratings[r['topic']].append(r['rating'])
+    scores = {}
+    for topic in get_all_topics():
+        if topic in overrides:
+            scores[topic] = overrides[topic]
+            continue
+        rs = topic_ratings.get(topic, [])
+        if not rs:
+            scores[topic] = 'unknown'
+        elif len(rs) < 3 or sum(rs) / len(rs) < 3.0:
+            scores[topic] = 'weak'
+        elif sum(rs) / len(rs) < 4.0:
+            scores[topic] = 'developing'
+        else:
+            scores[topic] = 'strong'
+    return scores
+
+
+# ---------------------------------------------------------------------------
+# Behavior analytics
+# ---------------------------------------------------------------------------
+
+def load_behavior_events():
+    if not os.path.exists(BEHAVIOR_FILE):
+        return []
+    events = []
+    with open(BEHAVIOR_FILE) as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                try:
+                    events.append(json.loads(line))
+                except json.JSONDecodeError:
+                    pass
+    return events
+
+
+def compute_behavior_patterns(events):
+    """Compute per-topic flags from behavior.jsonl events."""
+    hint_times   = defaultdict(list)   # topic → [time_to_hint_min]
+    hint_levels  = defaultdict(list)   # topic → [hint_level]
+    effective    = defaultdict(list)   # topic → [bool]
+    calibration  = defaultdict(list)   # topic → [abs divergence]
+
+    for e in events:
+        topic = e.get('topic', 'unknown')
+        ev    = e.get('event', '')
+        if ev == 'hint_given':
+            if 'time_to_hint_min' in e:
+                hint_times[topic].append(e['time_to_hint_min'])
+            if 'hint_level' in e:
+                hint_levels[topic].append(e['hint_level'])
+        elif ev == 'hint_assessed':
+            effective[topic].append(bool(e.get('effective', False)))
+        elif ev == 'rating_calibration':
+            div = abs(e.get('self_rating', 0) - e.get('expected_rating_from_hints', 0))
+            calibration[topic].append(div)
+
+    patterns = {}
+    all_topics = set(list(hint_times) + list(hint_levels))
+    for topic in all_topics:
+        avg_time  = (sum(hint_times[topic]) / len(hint_times[topic])
+                     if hint_times[topic] else None)
+        avg_level = (sum(hint_levels[topic]) / len(hint_levels[topic])
+                     if hint_levels[topic] else None)
+        eff_rate  = (sum(1 for x in effective[topic] if x) / len(effective[topic])
+                     if effective[topic] else None)
+        cal_delta = (sum(calibration[topic]) / len(calibration[topic])
+                     if calibration[topic] else None)
+
+        flags = []
+        if avg_time is not None and avg_time < 5:         flags.append('quick_give_up')
+        if avg_level is not None and avg_level > 2.5:    flags.append('chronic_hint')
+        if eff_rate is not None and eff_rate > 0.75:     flags.append('hint_positive')
+        if eff_rate is not None and eff_rate < 0.40:     flags.append('hint_negative')
+        if cal_delta is not None and cal_delta > 1.5:    flags.append('overconfident')
+
+        patterns[topic] = {
+            'avg_time_to_hint_min': round(avg_time, 1)  if avg_time  is not None else None,
+            'avg_hint_level':       round(avg_level, 2) if avg_level is not None else None,
+            'hint_effectiveness':   round(eff_rate, 2)  if eff_rate  is not None else None,
+            'calibration_delta':    round(cal_delta, 1) if cal_delta is not None else None,
+            'sample_count':         len(hint_levels.get(topic, [])),
+            'flags':                flags,
+        }
+    return patterns
+
+
+def flush_behavior_events(session):
+    """Append hint_events from session dict to behavior.jsonl (append-only)."""
+    events = session.get('hint_events', [])
+    if not events:
+        return 0
+    with open(BEHAVIOR_FILE, 'a') as f:
+        for ev in events:
+            f.write(json.dumps(ev) + '\n')
+    return len(events)
+
+
+# ---------------------------------------------------------------------------
+# Session
+# ---------------------------------------------------------------------------
+
+def load_session():
+    if not os.path.exists(SESSION_FILE):
+        return None
+    with open(SESSION_FILE) as f:
+        return json.load(f)
+
+
+def save_session(session):
+    with open(SESSION_FILE, 'w') as f:
+        json.dump(session, f, indent=2)
+        f.write('\n')
+
+
+# ---------------------------------------------------------------------------
+# Plan generation (extracted as helper so regenerate can reuse it)
+# ---------------------------------------------------------------------------
+
+def _has_design_round(intelligence):
+    return any('design' in r for r in intelligence.get('rounds', []))
+
+
+def _generate_plan_for_target(config, tid):
+    """
+    Generate a day-by-day study plan. Saves to config.
+    Returns (success: bool, message: str).
+    """
+    target = config.get('targets', {}).get(tid)
+    if not target:
+        return False, f"Target '{tid}' not found."
+
+    date_str = target.get('interview_date', '')
+    if not date_str:
+        return False, "Target has no interview_date. Set it: grind target update <id> --field interview_date --value YYYY-MM-DD"
+    try:
+        interview_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+    except ValueError:
+        return False, f"Invalid date format: {date_str} (expected YYYY-MM-DD)"
+
+    rows         = parse_memory()
+    overrides    = config.get('gap_overrides', {})
+    gap_scores   = compute_gap_scores(rows, overrides)
+    intelligence = target.get('intelligence', {})
+    resume       = config.get('resume', {})
+
+    days_remaining = max(1, (interview_date - datetime.now().date()).days)
+
+    # Map reported problem slugs → topics
+    reported_set = set(intelligence.get('reported_topics', []))
+    reported_topic_set = set()
+    bank = load_problems()
+    if bank:
+        for td in bank.get('tracks', {}).values():
+            for p in td.get('problems', []):
+                if p['slug'] in reported_set:
+                    reported_topic_set.add(p.get('topic', ''))
+
+    # Topic weights
+    score_weight = {'unknown': 2.5, 'weak': 3.0, 'developing': 1.0, 'strong': 0.3}
+    weights = {}
+    for topic, score in gap_scores.items():
+        w = score_weight.get(score, 1.0)
+        if topic in reported_topic_set:
+            w = max(w, 1.5)
+        weights[topic] = w
+
+    # Time allocation
+    reserve_mock    = min(3, days_remaining // 7)
+    practice_days   = max(1, days_remaining - reserve_mock)
+    has_design      = _has_design_round(intelligence)
+    coding_days     = int(practice_days * 0.6)
+    design_days     = int(practice_days * 0.2) if has_design else 0
+    behavioral_days = practice_days - coding_days - design_days
+
+    # Problem pool per topic, sorted by topic weight, excluding already solved
+    solved_slugs  = {r['slug'] for r in rows}
+    sorted_topics = sorted(weights.keys(), key=lambda t: -weights.get(t, 0))
+    problems_by_topic = get_problems_by_topic()
+    topic_queues  = {
+        t: [p for p in problems_by_topic.get(t, []) if p['slug'] not in solved_slugs]
+        for t in sorted_topics
+    }
+
+    days    = []
+    day_num = 1
+    today   = datetime.now().date()
+
+    def pick_day_problems(n=2):
+        """Pick up to n problems from highest-weight topics with remaining problems."""
+        picked = []
+        for t in sorted_topics:
+            if len(picked) >= n:
+                break
+            if topic_queues.get(t):
+                picked.append((topic_queues[t].pop(0), t))
+        return picked
+
+    # Coding days
+    for _ in range(coding_days):
+        day_problems = pick_day_problems(2)
+        if not day_problems:
+            break
+        focus  = day_problems[0][1]
+        slugs  = [p['slug'] for p, _ in day_problems]
+        days.append({
+            'day': day_num,
+            'date': (today + timedelta(days=day_num - 1)).strftime('%Y-%m-%d'),
+            'type': 'coding',
+            'problems': slugs,
+            'focus': focus,
+            'completed': False,
+        })
+        day_num += 1
+
+    # System design days
+    for _ in range(design_days):
+        days.append({
+            'day': day_num,
+            'date': (today + timedelta(days=day_num - 1)).strftime('%Y-%m-%d'),
+            'type': 'system-design',
+            'problems': [],
+            'focus': 'system-design',
+            'completed': False,
+        })
+        day_num += 1
+
+    # Behavioral days
+    for _ in range(behavioral_days):
+        days.append({
+            'day': day_num,
+            'date': (today + timedelta(days=day_num - 1)).strftime('%Y-%m-%d'),
+            'type': 'behavioral',
+            'problems': [],
+            'focus': 'behavioral',
+            'completed': False,
+        })
+        day_num += 1
+
+    # Mock days (reserved at end)
+    for _ in range(reserve_mock):
+        days.append({
+            'day': day_num,
+            'date': (today + timedelta(days=day_num - 1)).strftime('%Y-%m-%d'),
+            'type': 'mock',
+            'problems': [],
+            'focus': 'mock-interview',
+            'completed': False,
+        })
+        day_num += 1
+
+    target['plan'] = {
+        'generated_at':           datetime.now().isoformat(),
+        'days_remaining':         days_remaining,
+        'mock_sessions_target':   max(3, days_remaining // 5),
+        'mock_sessions_completed': 0,
+        'days':                   days,
+    }
+    save_config(config)
+    return True, f"Plan generated: {len(days)} days until {date_str}"
+
+
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
 
 def cmd_init(args):
-    """First-time setup: create memory.md, config, print welcome."""
     created = []
-
     if not os.path.exists(MEMORY_FILE):
-        with open(MEMORY_FILE, 'w') as f:
-            f.write('# LeetCode Progress\n\n')
-            f.write('| Slug | Topic | Difficulty | Date | Rating | Time | Hints | Ease | Interval | Next Review |\n')
-            f.write('|------|-------|------------|------|--------|------|-------|------|----------|-------------|\n')
+        write_memory([])
         created.append('memory.md')
-
     if not os.path.exists(CONFIG_FILE):
         save_config({"active_track": "blind75"})
         created.append('.lc_config.json')
-
     os.makedirs(os.path.join(PROJECT_ROOT, 'problems'), exist_ok=True)
 
     print()
@@ -118,67 +507,49 @@ def cmd_init(args):
             print(f"  {DIM}Created {f}{RESET}")
         print()
 
-    print(f"  {BOLD}Quick start:{RESET}")
-    print(f"    {CYAN}/solve two-sum cpp{RESET}     Start your first problem")
-    print(f"    {CYAN}grind list{RESET}             Browse the problem bank")
-    print(f"    {CYAN}grind progress{RESET}         Check your progress")
+    print(f"  {BOLD}Quick start (agent commands — no CLI needed):{RESET}")
+    print(f"    {CYAN}/setup{RESET}              Full onboarding — resume + job target + plan")
+    print(f"    {CYAN}/solve two-sum cpp{RESET}  Start your first problem")
+    print(f"    {CYAN}/progress{RESET}           Check your progress")
     print()
-    print(f"  {DIM}Active track: Blind 75 (switch with: grind track <name>){RESET}")
+    print(f"  {DIM}Active track: Blind 75  ·  grind track <name> to switch{RESET}")
     print()
 
 
 def cmd_new(args):
-    """Creates a new problem folder from template."""
-    slug = args.slug
-    lang = args.lang
-
-    config = {
-        'python': {'ext': 'py', 'template': 'templates/python.txt', 'filename': 'solution.py'},
-        'cpp': {'ext': 'cpp', 'template': 'templates/cpp.txt', 'filename': 'solution.cpp'},
-        'java': {'ext': 'java', 'template': 'templates/java.txt', 'filename': 'Solution.java'},
+    lang_cfg = {
+        'python': {'template': 'templates/python.txt', 'filename': 'solution.py'},
+        'cpp':    {'template': 'templates/cpp.txt',    'filename': 'solution.cpp'},
+        'java':   {'template': 'templates/java.txt',   'filename': 'Solution.java'},
     }
-
-    template_path = os.path.join(PROJECT_ROOT, config[lang]['template'])
-    problem_dir = resolve_problem_dir(slug)
-    solution_file = os.path.join(problem_dir, config[lang]['filename'])
-    input_file = os.path.join(problem_dir, 'input.txt')
+    slug          = args.slug
+    lang          = args.lang
+    template_path = os.path.join(PROJECT_ROOT, lang_cfg[lang]['template'])
+    problem_dir   = resolve_problem_dir(slug)
+    solution_file = os.path.join(problem_dir, lang_cfg[lang]['filename'])
+    input_file    = os.path.join(problem_dir, 'input.txt')
 
     if os.path.exists(solution_file):
         print_error(f"Solution already exists: {solution_file}")
         return
-
     if not os.path.exists(template_path):
         print_error(f"Template not found: {template_path}")
         return
 
-    # Create problem directory
     os.makedirs(problem_dir, exist_ok=True)
-
-    # Read template
-    with open(template_path, 'r') as f:
+    with open(template_path) as f:
         content = f.read()
-
-    # Replace placeholders
-    class_name = "Solution"
-    folder_name = slug_to_folder(slug)
     content = content.replace("{{PROBLEM_NAME}}", slug)
     content = content.replace("{{PROBLEM_SLUG}}", slug)
-    content = content.replace("{{PROBLEM_CLASS}}", class_name)
-    content = content.replace("{{PROBLEM_FOLDER}}", folder_name)
-
-    # Write solution file
+    content = content.replace("{{PROBLEM_CLASS}}", "Solution")
+    content = content.replace("{{PROBLEM_FOLDER}}", slug_to_folder(slug))
     with open(solution_file, 'w') as f:
         f.write(content)
-
-    # Write input file (empty)
     if not os.path.exists(input_file):
-        with open(input_file, 'w') as f:
-            f.write("")
+        open(input_file, 'w').close()
 
     print_success(f"Created {solution_file}")
     print_success(f"Created {input_file}")
-
-    # Try to open in VS Code
     try:
         subprocess.run(['code', solution_file, input_file], check=False,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -187,49 +558,30 @@ def cmd_new(args):
 
 
 def cmd_run(args):
-    """Runs the problem file."""
     slug_or_file = args.filename
-
-    # First try: resolve as slug to problem directory
-    problem_dir = resolve_problem_dir(slug_or_file)
+    problem_dir  = resolve_problem_dir(slug_or_file)
     solution_file = find_solution_file(problem_dir) if os.path.isdir(problem_dir) else None
 
     if not solution_file:
-        # Try the raw slug without dash-to-underscore conversion
         raw_dir = os.path.join(PROJECT_ROOT, 'problems', slug_or_file)
         if os.path.isdir(raw_dir):
             solution_file = find_solution_file(raw_dir)
-            if solution_file:
-                problem_dir = raw_dir
 
     if not solution_file:
-        # Legacy fallback: try as direct file path
         filename = slug_or_file
         if not os.path.exists(filename):
-            candidate = os.path.join(PROJECT_ROOT, 'problems', filename)
-            if os.path.exists(candidate):
-                filename = candidate
-            else:
-                found = False
+            for stem in [filename, filename.replace('-', '_')]:
                 for ext in ['.py', '.cpp', '.java']:
-                    candidate_ext = os.path.join(PROJECT_ROOT, 'problems', filename + ext)
-                    if os.path.exists(candidate_ext):
-                        filename = candidate_ext
-                        found = True
+                    c = os.path.join(PROJECT_ROOT, 'problems', stem + ext)
+                    if os.path.exists(c):
+                        filename = c
                         break
-                if not found:
-                    alt = filename.replace('-', '_')
-                    for ext in ['.py', '.cpp', '.java']:
-                        candidate_ext = os.path.join(PROJECT_ROOT, 'problems', alt + ext)
-                        if os.path.exists(candidate_ext):
-                            filename = candidate_ext
-                            found = True
-                            break
-                if not found:
-                    print_error(f"Problem '{slug_or_file}' not found.")
-                    print(f"\n  {DIM}Make sure you've scaffolded it first:{RESET}")
-                    print(f"  {CYAN}grind new {slug_or_file} cpp{RESET}\n")
-                    return
+                if os.path.exists(filename):
+                    break
+            else:
+                print_error(f"Problem '{slug_or_file}' not found.")
+                print(f"\n  {DIM}Scaffold first: grind new {slug_or_file} cpp{RESET}\n")
+                return
         _run_file(filename)
         return
 
@@ -237,22 +589,18 @@ def cmd_run(args):
 
 
 def _run_file(filename):
-    """Execute a solution file with elapsed time reporting."""
-    ext = os.path.splitext(filename)[1]
+    ext         = os.path.splitext(filename)[1]
     problem_dir = os.path.dirname(filename)
-    input_file = os.path.join(problem_dir, 'input.txt')
-
-    # Legacy fallback for flat files
+    input_file  = os.path.join(problem_dir, 'input.txt')
     if not os.path.exists(input_file):
         input_file = os.path.splitext(filename)[0] + '.txt'
 
     stdin_file = None
     if os.path.exists(input_file) and os.path.getsize(input_file) > 0:
         print_info(f"Reading input from {os.path.basename(input_file)}...")
-        stdin_file = open(input_file, 'r')
+        stdin_file = open(input_file)
 
-    start_time = time_module.time()
-
+    start = time_module.time()
     try:
         if ext == '.py':
             env = os.environ.copy()
@@ -262,9 +610,7 @@ def _run_file(filename):
         elif ext == '.cpp':
             out_bin = os.path.join(PROJECT_ROOT, 'a.out')
             print_info("Compiling C++...")
-            cmd = ['g++', '-std=c++17', filename, '-o', out_bin]
-            res = subprocess.run(cmd)
-
+            res = subprocess.run(['g++', '-std=c++17', filename, '-o', out_bin])
             if res.returncode == 0:
                 print_info("Running...")
                 subprocess.run([out_bin], stdin=stdin_file)
@@ -277,19 +623,17 @@ def _run_file(filename):
         elif ext == '.java':
             print_info("Compiling Java...")
             utils_java = os.path.join(PROJECT_ROOT, 'utils/java/LcUtils.java')
-            cmd = ['javac', '-cp', PROJECT_ROOT, filename, utils_java]
-            res = subprocess.run(cmd, cwd=PROJECT_ROOT)
-
+            res = subprocess.run(['javac', '-cp', PROJECT_ROOT, filename, utils_java],
+                                 cwd=PROJECT_ROOT)
             if res.returncode == 0:
                 print_info("Running...")
-                rel = os.path.relpath(filename, PROJECT_ROOT)
+                rel       = os.path.relpath(filename, PROJECT_ROOT)
                 classname = os.path.splitext(rel)[0].replace(os.sep, '.')
                 subprocess.run(['java', '-cp', PROJECT_ROOT, classname],
                                cwd=PROJECT_ROOT, stdin=stdin_file)
             else:
                 print_error("Compilation failed.")
                 return
-
         else:
             print_error(f"Unsupported extension: {ext}")
             return
@@ -300,476 +644,1200 @@ def _run_file(filename):
         if stdin_file:
             stdin_file.close()
 
-    elapsed = time_module.time() - start_time
-    if elapsed < 1:
-        print(f"\n{DIM}Elapsed: {elapsed*1000:.0f}ms{RESET}")
-    else:
-        print(f"\n{DIM}Elapsed: {elapsed:.2f}s{RESET}")
-
-
-# --- SM-2 Spaced Repetition ---
-
-def sm2_calculate(rating, prev_ease=2.5, prev_interval=0, repetition=0):
-    """
-    SM-2 algorithm. Returns (new_ease, new_interval, new_repetition).
-    Rating: 1-5 (maps to SM-2 quality 0-5 with 1->1, 5->5).
-    """
-    quality = rating
-
-    new_ease = prev_ease + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02))
-    new_ease = max(1.3, new_ease)
-
-    if quality < 3:
-        new_repetition = 0
-        new_interval = 1
-    else:
-        new_repetition = repetition + 1
-        if new_repetition == 1:
-            new_interval = 1
-        elif new_repetition == 2:
-            new_interval = 6
-        else:
-            new_interval = math.ceil(prev_interval * new_ease)
-
-    return new_ease, new_interval, new_repetition
-
-
-def parse_memory():
-    """Parse memory.md and return list of row dicts."""
-    if not os.path.exists(MEMORY_FILE):
-        return []
-
-    with open(MEMORY_FILE, 'r') as f:
-        lines = f.readlines()
-
-    rows = []
-    in_table = False
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith('| Slug'):
-            in_table = True
-            continue
-        if in_table and stripped.startswith('|---'):
-            continue
-        if in_table and stripped.startswith('|'):
-            cells = [c.strip() for c in stripped.split('|')[1:-1]]
-            if len(cells) >= 10:
-                rows.append({
-                    'slug': cells[0],
-                    'topic': cells[1],
-                    'difficulty': cells[2],
-                    'date': cells[3],
-                    'rating': int(cells[4]),
-                    'time': cells[5],
-                    'hints': int(cells[6]) if cells[6] else 0,
-                    'ease': float(cells[7]),
-                    'interval': cells[8],
-                    'next_review': cells[9],
-                })
-        elif in_table and not stripped.startswith('|'):
-            in_table = False
-
-    return rows
-
-
-def write_memory(rows):
-    """Write rows back to memory.md."""
-    lines = ['# LeetCode Progress\n', '\n']
-    lines.append('| Slug | Topic | Difficulty | Date | Rating | Time | Hints | Ease | Interval | Next Review |\n')
-    lines.append('|------|-------|------------|------|--------|------|-------|------|----------|-------------|\n')
-
-    for r in rows:
-        lines.append(
-            f"| {r['slug']} | {r['topic']} | {r['difficulty']} | {r['date']} "
-            f"| {r['rating']} | {r['time']} | {r['hints']} | {r['ease']:.1f} "
-            f"| {r['interval']} | {r['next_review']} |\n"
-        )
-
-    with open(MEMORY_FILE, 'w') as f:
-        f.writelines(lines)
+    elapsed = time_module.time() - start
+    print(f"\n{DIM}Elapsed: {elapsed*1000:.0f}ms{RESET}" if elapsed < 1
+          else f"\n{DIM}Elapsed: {elapsed:.2f}s{RESET}")
 
 
 def cmd_log(args):
-    """Log a solved problem with SM-2 spaced repetition."""
-    slug = args.slug
-    rating = args.rating
+    slug       = args.slug
+    rating     = args.rating
     time_spent = f"{args.time}m" if args.time else ""
-    hints = args.hints if args.hints is not None else 0
-    topic = args.topic or ""
+    hints      = args.hints or 0
+    topic      = args.topic or ""
     difficulty = args.difficulty or ""
 
     rows = parse_memory()
-
-    # Find previous entry for this slug to get SM-2 state
-    prev = None
-    for r in rows:
-        if r['slug'] == slug:
-            prev = r
+    prev = next((r for r in reversed(rows) if r['slug'] == slug), None)
 
     if prev:
-        prev_ease = prev['ease']
-        interval_str = prev['interval'].rstrip('d')
-        prev_interval = int(interval_str) if interval_str else 0
-        repetition = sum(1 for r in rows if r['slug'] == slug)
-        if not topic:
-            topic = prev['topic']
-        if not difficulty:
-            difficulty = prev['difficulty']
+        prev_ease     = prev['ease']
+        prev_interval = int(prev['interval'].rstrip('d') or 0)
+        repetition    = sum(1 for r in rows if r['slug'] == slug)
+        topic         = topic      or prev['topic']
+        difficulty    = difficulty or prev['difficulty']
     else:
-        prev_ease = 2.5
-        prev_interval = 0
-        repetition = 0
+        prev_ease, prev_interval, repetition = 2.5, 0, 0
 
-    # Try to fill topic/difficulty from problems.json if not provided
-    if (not topic or not difficulty):
+    if not topic or not difficulty:
         bank = load_problems()
         if bank:
-            for track_data in bank.get('tracks', {}).values():
-                for p in track_data.get('problems', []):
+            for td in bank.get('tracks', {}).values():
+                for p in td.get('problems', []):
                     if p['slug'] == slug:
-                        if not topic:
-                            topic = p.get('topic', '')
-                        if not difficulty:
-                            difficulty = p.get('difficulty', '')
+                        topic      = topic      or p.get('topic', '')
+                        difficulty = difficulty or p.get('difficulty', '')
                         break
 
     new_ease, new_interval, _ = sm2_calculate(rating, prev_ease, prev_interval, repetition)
-
-    today = datetime.now().strftime('%Y-%m-%d')
+    today       = datetime.now().strftime('%Y-%m-%d')
     next_review = (datetime.now() + timedelta(days=new_interval)).strftime('%Y-%m-%d')
 
-    new_row = {
-        'slug': slug,
-        'topic': topic,
-        'difficulty': difficulty,
-        'date': today,
-        'rating': rating,
-        'time': time_spent,
-        'hints': hints,
-        'ease': new_ease,
-        'interval': f"{new_interval}d",
-        'next_review': next_review,
-    }
-
-    rows.append(new_row)
+    rows.append({
+        'slug': slug, 'topic': topic, 'difficulty': difficulty,
+        'date': today, 'rating': rating, 'time': time_spent,
+        'hints': hints, 'ease': new_ease,
+        'interval': f"{new_interval}d", 'next_review': next_review,
+    })
     write_memory(rows)
-
-    print_success(f"Logged {slug}: rating={rating}, ease={new_ease:.1f}, interval={new_interval}d, next review={next_review}")
-
+    print_success(
+        f"Logged {slug}: rating={rating}, ease={new_ease:.1f}, "
+        f"interval={new_interval}d, next_review={next_review}"
+    )
     if len(rows) > ARCHIVE_THRESHOLD:
         cmd_archive(None)
 
 
 def cmd_archive(args):
-    """Move oldest rows from memory.md to memory_archive.md when over threshold."""
     rows = parse_memory()
-
     if len(rows) <= ARCHIVE_THRESHOLD:
-        print_info(f"Only {len(rows)} rows, no archiving needed (threshold: {ARCHIVE_THRESHOLD}).")
+        if args is not None:
+            print_info(f"Only {len(rows)} rows, no archiving needed.")
         return
-
     to_archive = rows[:len(rows) - ARCHIVE_THRESHOLD]
-    to_keep = rows[len(rows) - ARCHIVE_THRESHOLD:]
+    to_keep    = rows[len(rows) - ARCHIVE_THRESHOLD:]
 
     archive_lines = []
     if os.path.exists(ARCHIVE_FILE):
-        with open(ARCHIVE_FILE, 'r') as f:
+        with open(ARCHIVE_FILE) as f:
             archive_lines = f.readlines()
-
     if not archive_lines:
         archive_lines = [
             '# LeetCode Progress Archive\n', '\n',
             '| Slug | Topic | Difficulty | Date | Rating | Time | Hints | Ease | Interval | Next Review |\n',
             '|------|-------|------------|------|--------|------|-------|------|----------|-------------|\n',
         ]
-
     for r in to_archive:
         archive_lines.append(
             f"| {r['slug']} | {r['topic']} | {r['difficulty']} | {r['date']} "
             f"| {r['rating']} | {r['time']} | {r['hints']} | {r['ease']:.1f} "
             f"| {r['interval']} | {r['next_review']} |\n"
         )
-
     with open(ARCHIVE_FILE, 'w') as f:
         f.writelines(archive_lines)
-
     write_memory(to_keep)
     print_success(f"Archived {len(to_archive)} rows to memory_archive.md")
 
 
 def cmd_list(args):
-    """List problems from the active track (or specified track), with solved status."""
     bank = load_problems()
     if not bank:
         return
-
-    config = load_config()
-    track_name = args.track or config.get('active_track', 'blind75')
+    config       = load_config()
+    track_name   = args.track or config.get('active_track', 'blind75')
     topic_filter = args.topic.lower() if args.topic else None
-    difficulty_filter = args.difficulty.lower() if args.difficulty else None
+    diff_filter  = args.difficulty.lower() if args.difficulty else None
 
     tracks = bank.get('tracks', {})
     if track_name not in tracks:
         print_error(f"Track '{track_name}' not found.")
-        print(f"  {DIM}Available tracks: {', '.join(tracks.keys())}{RESET}")
+        print(f"  {DIM}Available: {', '.join(tracks.keys())}{RESET}")
         return
 
-    track = tracks[track_name]
+    track    = tracks[track_name]
     problems = track['problems']
-
-    # Filter
-    if topic_filter:
-        problems = [p for p in problems if p.get('topic', '').lower() == topic_filter]
-    if difficulty_filter:
-        problems = [p for p in problems if p.get('difficulty', '').lower() == difficulty_filter]
-
+    if topic_filter: problems = [p for p in problems if p.get('topic','').lower() == topic_filter]
+    if diff_filter:  problems = [p for p in problems if p.get('difficulty','').lower() == diff_filter]
     if not problems:
         print_info("No problems match the filters.")
         return
 
-    # Get solved slugs from memory
-    rows = parse_memory()
-    solved_slugs = set(r['slug'] for r in rows)
-
-    # Group by topic
-    by_topic = {}
+    rows    = parse_memory()
+    solved  = {r['slug'] for r in rows}
+    by_topic = defaultdict(list)
     for p in problems:
-        topic = p.get('topic', 'other')
-        by_topic.setdefault(topic, []).append(p)
+        by_topic[p.get('topic', 'other')].append(p)
 
-    solved_count = sum(1 for p in problems if p['slug'] in solved_slugs)
-    total = len(problems)
-
+    total        = len(problems)
+    solved_count = sum(1 for p in problems if p['slug'] in solved)
     print(f"\n  {BOLD}{track['name']}{RESET} {DIM}({solved_count}/{total} solved){RESET}\n")
 
-    diff_colors = {'easy': GREEN, 'medium': YELLOW, 'hard': RED}
-
+    dc = {'easy': GREEN, 'medium': YELLOW, 'hard': RED}
     for topic in sorted(by_topic.keys()):
-        topic_problems = by_topic[topic]
         print(f"  {BOLD}{MAGENTA}{topic}{RESET}")
-        for p in topic_problems:
-            slug = p['slug']
-            diff = p.get('difficulty', '')
-            number = p.get('number', '')
-            check = f"{GREEN}*{RESET}" if slug in solved_slugs else f"{DIM}.{RESET}"
-            dc = diff_colors.get(diff, '')
-            num_str = f"#{number}" if number else ""
-            print(f"    {check} {slug} {DIM}{num_str}{RESET} {dc}{diff}{RESET}")
+        for p in by_topic[topic]:
+            slug  = p['slug']
+            diff  = p.get('difficulty', '')
+            num   = p.get('number', '')
+            check = f"{GREEN}*{RESET}" if slug in solved else f"{DIM}.{RESET}"
+            num_s = f"#{num}" if num else ""
+            print(f"    {check} {slug} {DIM}{num_s}{RESET} {dc.get(diff,'')}{diff}{RESET}")
         print()
-
-    print(f"  {DIM}Filter: grind list --topic <topic> --difficulty <easy|medium|hard>{RESET}")
-    print()
+    print(f"  {DIM}Filter: grind list --topic <t> --difficulty <easy|medium|hard>{RESET}\n")
 
 
 def cmd_track(args):
-    """View or switch active track."""
     bank = load_problems()
     if not bank:
         return
-
     config = load_config()
     tracks = bank.get('tracks', {})
-
     if args.name:
-        # Switch track
         if args.name not in tracks:
             print_error(f"Track '{args.name}' not found.")
-            print(f"  {DIM}Available tracks: {', '.join(tracks.keys())}{RESET}")
+            print(f"  {DIM}Available: {', '.join(tracks.keys())}{RESET}")
             return
         config['active_track'] = args.name
         save_config(config)
-        track = tracks[args.name]
-        print_success(f"Switched to {track['name']} ({len(track['problems'])} problems)")
+        t = tracks[args.name]
+        print_success(f"Switched to {t['name']} ({len(t['problems'])} problems)")
     else:
-        # Show current track info
         current = config.get('active_track', 'blind75')
-        print(f"\n  {BOLD}Active track:{RESET} {current}")
-        print(f"\n  {BOLD}Available tracks:{RESET}")
-        for key, track in tracks.items():
-            marker = f" {GREEN}<-{RESET}" if key == current else ""
-            print(f"    {CYAN}{key}{RESET} — {track['name']} ({len(track['problems'])} problems){marker}")
+        print(f"\n  {BOLD}Active track:{RESET} {current}\n  {BOLD}Available:{RESET}")
+        for k, t in tracks.items():
+            m = f" {GREEN}<-{RESET}" if k == current else ""
+            print(f"    {CYAN}{k}{RESET} — {t['name']} ({len(t['problems'])} problems){m}")
         print(f"\n  {DIM}Switch: grind track <name>{RESET}\n")
 
 
-def cmd_progress(args):
-    """Show progress summary: due reviews, recent solves, streak, track progress."""
-    rows = parse_memory()
+# ---------------------------------------------------------------------------
+# TARGET
+# ---------------------------------------------------------------------------
 
+def _next_target_id(config, company_slug):
+    targets = config.get('targets', {})
+    i = 1
+    while f"{company_slug}-{i:03d}" in targets:
+        i += 1
+    return f"{company_slug}-{i:03d}"
+
+
+def cmd_target(args):
+    if not hasattr(args, 'target_cmd') or args.target_cmd is None:
+        print(f"\n  {BOLD}grind target subcommands:{RESET}")
+        print(f"    add     --company <name> --role <title> --date <YYYY-MM-DD>")
+        print(f"    list")
+        print(f"    active  [id]")
+        print(f"    remove  <id>")
+        print(f"    show    [id]")
+        print(f"    update  <id> --field <field> --value <value>")
+        print(f"    merge   <id1> <id2>\n")
+        return
+
+    config = load_config()
+    sub    = args.target_cmd
+
+    if sub == 'add':
+        company_slug = args.company.lower().replace(' ', '-')
+        tid = _next_target_id(config, company_slug)
+        config.setdefault('targets', {})[tid] = {
+            'id':                 tid,
+            'type':               'single',
+            'company':            args.company,
+            'role':               args.role,
+            'team':               args.team or '',
+            'url':                args.url  or '',
+            'interview_date':     args.date or '',
+            'preferred_language': args.lang or 'cpp',
+            'status':             'active',
+            'required_skills':    [],
+            'intelligence':       {},
+            'plan':               {},
+        }
+        config['active_target'] = tid
+        save_config(config)
+        print_success(f"Added target {tid}: {args.company} — {args.role}")
+        print_info(f"Active target set to {tid}")
+
+    elif sub == 'list':
+        targets = config.get('targets', {})
+        if not targets:
+            print_info("No targets. Add one: grind target add --company <name> --role <title> --date <YYYY-MM-DD>")
+            return
+        active = config.get('active_target', '')
+        print(f"\n  {BOLD}Interview Targets{RESET}\n")
+        for tid, t in targets.items():
+            marker = f" {GREEN}← active{RESET}" if tid == active else ""
+            date_s = t.get('interview_date', '')
+            days_s = ''
+            if date_s:
+                try:
+                    d = (datetime.strptime(date_s, '%Y-%m-%d').date() - datetime.now().date()).days
+                    days_s = (f" · {GREEN}{d}d until interview{RESET}" if d >= 0
+                              else f" · {DIM}interview was {-d}d ago{RESET}")
+                except ValueError:
+                    pass
+            print(f"  {CYAN}{tid}{RESET}  {t['company']} — {t['role']}{marker}{days_s}")
+        print()
+
+    elif sub == 'active':
+        if args.id:
+            targets = config.get('targets', {})
+            if args.id not in targets:
+                print_error(f"Target '{args.id}' not found.")
+                return
+            config['active_target'] = args.id
+            save_config(config)
+            t = targets[args.id]
+            print_success(f"Active target: {args.id} — {t['company']} {t['role']}")
+        else:
+            active = config.get('active_target')
+            if not active:
+                print_info("No active target. Set one: grind target active <id>")
+                return
+            t = config.get('targets', {}).get(active, {})
+            print(f"\n  {BOLD}Active target:{RESET} {active}")
+            print(f"  Company:  {t.get('company','')}")
+            print(f"  Role:     {t.get('role','')}")
+            print(f"  Date:     {t.get('interview_date','')}")
+            print(f"  Language: {t.get('preferred_language','cpp')}")
+            intel = t.get('intelligence', {})
+            if intel.get('reported_topics'):
+                print(f"  Reported: {', '.join(intel['reported_topics'][:8])}")
+            print()
+
+    elif sub == 'remove':
+        targets = config.get('targets', {})
+        if args.id not in targets:
+            print_error(f"Target '{args.id}' not found.")
+            return
+        del targets[args.id]
+        if config.get('active_target') == args.id:
+            config['active_target'] = next(iter(targets), '')
+        save_config(config)
+        print_success(f"Removed target {args.id}")
+
+    elif sub == 'show':
+        tid = args.id or config.get('active_target')
+        if not tid:
+            print_error("No target specified and no active target.")
+            return
+        t = config.get('targets', {}).get(tid)
+        if not t:
+            print_error(f"Target '{tid}' not found.")
+            return
+        print(json.dumps(t, indent=2))
+
+    elif sub == 'update':
+        targets = config.get('targets', {})
+        if args.id not in targets:
+            print_error(f"Target '{args.id}' not found.")
+            return
+        try:
+            value = json.loads(args.value)
+        except (json.JSONDecodeError, TypeError):
+            value = args.value
+        # Support nested dot notation: intelligence.rounds
+        parts = args.field.split('.')
+        obj = targets[args.id]
+        for part in parts[:-1]:
+            obj = obj.setdefault(part, {})
+        obj[parts[-1]] = value
+        save_config(config)
+        print_success(f"Updated {args.id}.{args.field}")
+
+    elif sub == 'merge':
+        targets = config.get('targets', {})
+        t1 = targets.get(args.id1)
+        t2 = targets.get(args.id2)
+        if not t1 or not t2:
+            print_error("One or both target IDs not found.")
+            return
+        skills1 = set(t1.get('required_skills', []))
+        skills2 = set(t2.get('required_skills', []))
+        shared  = skills1 & skills2
+        total   = skills1 | skills2
+        overlap = len(shared) / len(total) if total else 0
+        merge_type = 'combined' if overlap >= 0.6 else ('hybrid' if overlap >= 0.3 else 'separate')
+        mid = f"merged-{args.id1}-{args.id2}"
+        targets[mid] = {
+            'id':            mid,
+            'type':          merge_type,
+            'overlap_ratio': round(overlap, 2),
+            'shared_skills': sorted(shared),
+            'sources':       [args.id1, args.id2],
+            'status':        'active',
+            'plan':          {},
+        }
+        save_config(config)
+        print_success(f"Merged → {mid}  (overlap {overlap:.0%}, type: {merge_type})")
+        if merge_type == 'combined':
+            print_info("High overlap — combined track created.")
+        elif merge_type == 'hybrid':
+            print_warn("Moderate overlap — agent should decide: combined or separate.")
+        else:
+            print_warn("Low overlap — separate tracks recommended.")
+        print_info(f"Set active: grind target active {mid}")
+
+    else:
+        print_error(f"Unknown target subcommand: {sub}")
+
+
+# ---------------------------------------------------------------------------
+# RESUME
+# ---------------------------------------------------------------------------
+
+def cmd_resume(args):
+    if not hasattr(args, 'resume_cmd') or args.resume_cmd is None:
+        print(f"\n  {BOLD}grind resume subcommands:{RESET}")
+        print(f"    set   --path <path> [--profile '<json>']")
+        print(f"    show")
+        print(f"    clear\n")
+        return
+
+    config = load_config()
+    sub    = args.resume_cmd
+
+    if sub == 'set':
+        config.setdefault('resume', {})
+        if args.path:
+            config['resume']['path'] = os.path.expanduser(args.path)
+        config['resume']['set_at'] = datetime.now().isoformat()
+        if args.profile:
+            try:
+                profile = json.loads(args.profile)
+                config['resume'].update(profile)
+                config['resume']['analyzed_at'] = datetime.now().isoformat()
+            except json.JSONDecodeError as e:
+                print_error(f"Invalid profile JSON: {e}")
+                return
+        save_config(config)
+        print_success(f"Resume set: {config['resume'].get('path','(no path)')}")
+
+    elif sub == 'show':
+        r = config.get('resume')
+        if not r:
+            print_info("No resume set. Use: grind resume set --path <path>")
+            return
+        print(json.dumps(r, indent=2))
+
+    elif sub == 'clear':
+        config.pop('resume', None)
+        save_config(config)
+        print_success("Resume cleared.")
+
+    else:
+        print_error(f"Unknown resume subcommand: {sub}")
+
+
+# ---------------------------------------------------------------------------
+# SESSION
+# ---------------------------------------------------------------------------
+
+def cmd_session(args):
+    if not hasattr(args, 'session_cmd') or args.session_cmd is None:
+        print(f"\n  {BOLD}grind session subcommands:{RESET}")
+        print(f"    start   [--target <id>]")
+        print(f"    event   <slug> <event_type> [--data '<json>']")
+        print(f"    end")
+        print(f"    recover\n")
+        return
+
+    sub = args.session_cmd
+
+    if sub == 'start':
+        config   = load_config()
+        existing = load_session()
+        if existing and not existing.get('clean_exit', True):
+            print_warn("Unclean session found. Run 'grind session recover' first.")
+        target = getattr(args, 'target', None) or config.get('active_target', '')
+        session = {
+            'started_at':  datetime.now().isoformat(),
+            'target':      target,
+            'clean_exit':  False,
+            'problems':    [],
+            'hint_events': [],
+        }
+        save_session(session)
+        print_success(f"Session started (target: {target or 'none'})")
+
+    elif sub == 'event':
+        session = load_session()
+        if not session:
+            print_warn("No active session. Run: grind session start")
+            return
+        slug       = args.slug
+        event_type = args.event_type
+        data       = {}
+        if args.data:
+            try:
+                data = json.loads(args.data)
+            except json.JSONDecodeError as e:
+                print_error(f"Invalid data JSON: {e}")
+                return
+
+        # Ensure problem entry exists
+        problem = next((p for p in session['problems'] if p['slug'] == slug), None)
+        if problem is None:
+            problem = {
+                'slug': slug,
+                'presented_at': datetime.now().isoformat(),
+                'hints': 0, 'rated': False, 'logged': False,
+            }
+            session['problems'].append(problem)
+
+        # Build the event record (for hint events only)
+        hint_event_types = {'hint_given', 'hint_assessed', 'rating_calibration'}
+        if event_type in hint_event_types:
+            record = {
+                'ts':         datetime.now().isoformat(),
+                'session_id': session['started_at'][:10],
+                'slug':       slug,
+                'topic':      slug_to_topic(slug),
+                'event':      event_type,
+                **data,
+            }
+            session['hint_events'].append(record)
+
+        # Update problem summary
+        if event_type == 'hint_given':
+            problem['hints'] = problem.get('hints', 0) + 1
+        elif event_type == 'logged':
+            problem['logged'] = True
+            problem['logged_at'] = datetime.now().isoformat()
+            if 'rating' in data:
+                problem['rating'] = data['rating']
+                problem['rated']  = True
+        elif event_type == 'presented':
+            problem['presented_at'] = datetime.now().isoformat()
+
+        save_session(session)
+        print_success(f"Event recorded: {event_type} for {slug}")
+
+    elif sub == 'end':
+        session = load_session()
+        if not session:
+            print_info("No active session.")
+            return
+        n = flush_behavior_events(session)
+        session['clean_exit'] = True
+        session['ended_at']   = datetime.now().isoformat()
+        save_session(session)
+        os.remove(SESSION_FILE)
+        msg = "Session ended cleanly."
+        if n:
+            msg += f" {n} hint event(s) logged to behavior.jsonl."
+        print_success(msg)
+
+    elif sub == 'recover':
+        session = load_session()
+        if not session:
+            print_info("No recovery needed — no session file found.")
+            return
+        if session.get('clean_exit', False):
+            os.remove(SESSION_FILE)
+            print_info("Previous session exited cleanly. Nothing to recover.")
+            return
+        # Flush pending hint events even during recovery
+        n = flush_behavior_events(session)
+        unlogged = [p for p in session.get('problems', [])
+                    if p.get('rated') and not p.get('logged')]
+        if not unlogged:
+            print_info("No unlogged work found.")
+            os.remove(SESSION_FILE)
+            return
+        print(f"\n{YELLOW}Session recovery:{RESET}")
+        print(f"  Started: {session.get('started_at','?')}")
+        print(f"  Target:  {session.get('target','none')}\n")
+        for p in unlogged:
+            print(f"  {RED}●{RESET} {p['slug']} — rated {p.get('rating','?')}/5, not logged")
+        print(f"\n{DIM}Log with: grind log <slug> <rating>{RESET}")
+        if n:
+            print(f"{DIM}Flushed {n} hint event(s) to behavior.jsonl{RESET}")
+        print()
+
+    else:
+        print_error(f"Unknown session subcommand: {sub}")
+
+
+# ---------------------------------------------------------------------------
+# BEHAVIOR
+# ---------------------------------------------------------------------------
+
+def cmd_behavior(args):
+    if not hasattr(args, 'behavior_cmd') or args.behavior_cmd is None:
+        print(f"\n  {BOLD}grind behavior subcommands:{RESET}")
+        print(f"    summary                       Print user model (agent reads at session start)")
+        print(f"    report [--topic t] [--slug s] Detailed hint history")
+        print(f"    export                         Export as markdown")
+        print(f"    reset  [--force]               Clear behavior.jsonl\n")
+        return
+
+    sub = args.behavior_cmd
+
+    if sub == 'summary':
+        events = load_behavior_events()
+        if not events:
+            print_info("No behavioral data yet. Hint events are recorded during sessions.")
+            return
+        patterns = compute_behavior_patterns(events)
+        if not patterns:
+            print_info("Not enough data for patterns yet.")
+            return
+
+        print(f"\n{BOLD}User Behavior Model{RESET} {DIM}({len(events)} hint events){RESET}")
+        print(f"{DIM}{'─' * 60}{RESET}\n")
+
+        FLAG_SYM = {
+            'quick_give_up':  f"{YELLOW}⏱ quick-to-hint{RESET}",
+            'chronic_hint':   f"{YELLOW}↑ chronic-hint{RESET}",
+            'hint_positive':  f"{GREEN}✓ hints-effective{RESET}",
+            'hint_negative':  f"{RED}✗ hints-not-working{RESET}",
+            'overconfident':  f"{RED}↑ overconfident{RESET}",
+        }
+        for topic, p in sorted(patterns.items()):
+            parts = []
+            if p['avg_time_to_hint_min'] is not None: parts.append(f"avg {p['avg_time_to_hint_min']}min→hint")
+            if p['avg_hint_level']       is not None: parts.append(f"avg level {p['avg_hint_level']}")
+            if p['hint_effectiveness']   is not None: parts.append(f"effective {int(p['hint_effectiveness']*100)}%")
+            flags_str = '  '.join(FLAG_SYM.get(f, f) for f in p['flags'])
+            print(f"  {BOLD}{MAGENTA}{topic:<20}{RESET} {' · '.join(parts)}")
+            if flags_str:
+                print(f"  {' '*20} {flags_str}")
+
+        adjustments = []
+        for topic, p in patterns.items():
+            if 'quick_give_up' in p['flags']:
+                adjustments.append(f"  · {topic}: waiting longer before engaging on silence")
+            if 'hint_negative' in p['flags']:
+                adjustments.append(f"  · {topic}: stepping further back when hints don't help")
+            if 'overconfident' in p['flags']:
+                adjustments.append(f"  · {topic}: will surface calibration question after self-rating")
+        if adjustments:
+            print(f"\n{BOLD}Coaching adjustments:{RESET}")
+            for a in adjustments:
+                print(a)
+        print()
+
+    elif sub == 'report':
+        events = load_behavior_events()
+        if not events:
+            print_info("No behavioral data yet.")
+            return
+        if hasattr(args, 'topic') and args.topic:
+            events = [e for e in events if e.get('topic') == args.topic]
+        if hasattr(args, 'slug') and args.slug:
+            events = [e for e in events if e.get('slug') == args.slug]
+        if not events:
+            print_info("No events match the filter.")
+            return
+        print(f"\n{BOLD}Behavior Report{RESET} {DIM}({len(events)} events){RESET}\n")
+        for e in events[-50:]:
+            ts     = e.get('ts', '')[:16]
+            ev     = e.get('event', '')
+            sl     = e.get('slug', '')
+            tp     = e.get('topic', '')
+            detail = ''
+            if ev == 'hint_given':
+                detail = (f"level {e.get('hint_level','?')}  "
+                          f"{e.get('time_to_hint_min','?')}min  "
+                          f"concept: {e.get('hint_concept','')}")
+            elif ev == 'hint_assessed':
+                eff    = 'effective' if e.get('effective') else 'not effective'
+                detail = f"level {e.get('hint_level','?')} — {eff}: {e.get('reasoning','')}"
+            elif ev == 'rating_calibration':
+                delta  = e.get('self_rating', 0) - e.get('expected_rating_from_hints', 0)
+                detail = (f"self={e.get('self_rating')} "
+                          f"expected={e.get('expected_rating_from_hints')} "
+                          f"delta={delta:+d}")
+            print(f"  {DIM}{ts}{RESET}  {CYAN}{ev:<22}{RESET}  {sl} ({tp})  {detail}")
+        print()
+
+    elif sub == 'export':
+        events = load_behavior_events()
+        if not events:
+            print_info("No behavioral data to export.")
+            return
+        patterns = compute_behavior_patterns(events)
+        lines = [
+            f"# leet-coach Behavior Report\n",
+            f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n",
+            f"Total events: {len(events)}\n\n",
+            f"## Patterns by Topic\n\n",
+        ]
+        for topic, p in sorted(patterns.items()):
+            lines.append(f"### {topic}\n")
+            lines.append(f"- Avg time to first hint: {p['avg_time_to_hint_min']} min\n")
+            lines.append(f"- Avg hint level needed: {p['avg_hint_level']}\n")
+            lines.append(f"- Hint effectiveness: {p['hint_effectiveness']}\n")
+            lines.append(f"- Calibration delta: {p['calibration_delta']}\n")
+            lines.append(f"- Flags: {', '.join(p['flags']) or 'none'}\n\n")
+        lines.append("## Raw Events (last 100)\n\n")
+        for e in events[-100:]:
+            lines.append(f"- `{e.get('ts','')}` `{e.get('event','')}` {e.get('slug','')} ({e.get('topic','')})\n")
+        out = os.path.join(PROJECT_ROOT, f"behavior_report_{datetime.now().strftime('%Y%m%d')}.md")
+        with open(out, 'w') as f:
+            f.writelines(lines)
+        print_success(f"Exported to {out}")
+
+    elif sub == 'reset':
+        if not os.path.exists(BEHAVIOR_FILE):
+            print_info("No behavior.jsonl to reset.")
+            return
+        force = getattr(args, 'force', False)
+        if not force:
+            count = len(load_behavior_events())
+            print(f"{YELLOW}This will delete {count} behavior events. This cannot be undone.{RESET}")
+            confirm = input("Type 'yes' to confirm: ").strip().lower()
+            if confirm != 'yes':
+                print_info("Aborted.")
+                return
+        os.remove(BEHAVIOR_FILE)
+        print_success("behavior.jsonl cleared.")
+
+    else:
+        print_error(f"Unknown behavior subcommand: {sub}")
+
+
+# ---------------------------------------------------------------------------
+# SPEAK
+# ---------------------------------------------------------------------------
+
+def cmd_speak(args):
+    text   = args.text
+    rate   = getattr(args, 'rate', None) or 175
+    system = platform.system()
+
+    if system == 'Darwin':
+        subprocess.run(['say', '-r', str(rate), text])
+        return
+
+    if system == 'Linux':
+        for cmd in [
+            ['espeak-ng', f'--speed={rate // 10}', text],
+            ['espeak',    f'--speed={rate // 10}', text],
+            ['spd-say',   text],
+        ]:
+            try:
+                res = subprocess.run(cmd, capture_output=True, timeout=30)
+                if res.returncode == 0:
+                    return
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                continue
+        print_warn("No TTS engine found. Text mode:")
+        print(f"\n  {text}\n")
+        return
+
+    if system == 'Windows':
+        safe = text.replace("'", "`")
+        ps   = (
+            f"Add-Type -AssemblyName System.Speech; "
+            f"$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+            f"$s.Rate = 2; $s.Speak('{safe}')"
+        )
+        subprocess.run(['powershell', '-Command', ps])
+        return
+
+    print(text)  # Unknown OS — text fallback
+
+
+# ---------------------------------------------------------------------------
+# GAP
+# ---------------------------------------------------------------------------
+
+def cmd_gap(args):
+    if not hasattr(args, 'gap_cmd') or args.gap_cmd is None:
+        print(f"\n  {BOLD}grind gap subcommands:{RESET}")
+        print(f"    show               Display gap scores per topic")
+        print(f"    set <topic> <status>  Override a topic (unknown|weak|developing|strong)\n")
+        return
+
+    config = load_config()
+    sub    = args.gap_cmd
+
+    if sub == 'show':
+        rows      = parse_memory()
+        overrides = config.get('gap_overrides', {})
+        scores    = compute_gap_scores(rows, overrides)
+
+        topic_ratings = defaultdict(list)
+        for r in rows:
+            if r.get('topic') and r.get('rating'):
+                topic_ratings[r['topic']].append(r['rating'])
+
+        groups = {'unknown': [], 'weak': [], 'developing': [], 'strong': []}
+        for topic, score in sorted(scores.items()):
+            groups[score].append(topic)
+
+        print(f"\n{BOLD}Gap Analysis{RESET} {DIM}(from practice history){RESET}")
+        print(f"{DIM}{'─' * 40}{RESET}\n")
+
+        label_cfg = {
+            'unknown':    (f"{DIM}Unknown (never practiced):{RESET}", DIM),
+            'weak':       (f"{RED}{BOLD}Weak (needs focus):{RESET}", RED),
+            'developing': (f"{YELLOW}Developing:{RESET}", YELLOW),
+            'strong':     (f"{GREEN}Strong:{RESET}", GREEN),
+        }
+        for key in ['unknown', 'weak', 'developing', 'strong']:
+            if not groups[key]:
+                continue
+            label, col = label_cfg[key]
+            print(f"  {label}")
+            for t in groups[key]:
+                rs     = topic_ratings.get(t, [])
+                detail = f" (avg {sum(rs)/len(rs):.1f}, {len(rs)} attempt{'s' if len(rs)!=1 else ''})" if rs else ''
+                ov     = f" {DIM}[override]{RESET}" if t in overrides else ''
+                print(f"    {col}{t}{RESET}{detail}{ov}")
+            print()
+
+        if overrides:
+            print(f"  {DIM}Overrides: {', '.join(f'{k}={v}' for k,v in overrides.items())}{RESET}")
+        print(f"  {DIM}Override: grind gap set <topic> <weak|strong|unknown>{RESET}\n")
+
+    elif sub == 'set':
+        valid = ('unknown', 'weak', 'developing', 'strong')
+        if args.status not in valid:
+            print_error(f"Status must be one of: {', '.join(valid)}")
+            return
+        config.setdefault('gap_overrides', {})[args.topic] = args.status
+        save_config(config)
+        print_success(f"Gap override set: {args.topic} = {args.status}")
+
+    else:
+        print_error(f"Unknown gap subcommand: {sub}")
+
+
+# ---------------------------------------------------------------------------
+# PLAN
+# ---------------------------------------------------------------------------
+
+def cmd_plan(args):
+    if not hasattr(args, 'plan_cmd') or args.plan_cmd is None:
+        print(f"\n  {BOLD}grind plan subcommands:{RESET}")
+        print(f"    generate [--target <id>]   Build study plan from gap scores")
+        print(f"    show     [--target <id>]   Display plan with progress")
+        print(f"    today    [--target <id>]   Today's recommended problems")
+        print(f"    regenerate [--target <id>] Rebuild plan from current progress\n")
+        return
+
+    config = load_config()
+    sub    = args.plan_cmd
+
+    if sub == 'generate':
+        tid = getattr(args, 'target', None) or config.get('active_target')
+        if not tid:
+            print_error("No active target. Add one: grind target add --company <name> --role <title> --date YYYY-MM-DD")
+            return
+        ok, msg = _generate_plan_for_target(config, tid)
+        if ok:
+            print_success(msg)
+            print_info("View: grind plan show  ·  Today: grind plan today")
+        else:
+            print_error(msg)
+
+    elif sub == 'show':
+        tid = getattr(args, 'target', None) or config.get('active_target')
+        if not tid:
+            print_error("No active target.")
+            return
+        target = config.get('targets', {}).get(tid)
+        if not target or not target.get('plan', {}).get('days'):
+            print_error("No plan found. Generate one: grind plan generate")
+            return
+        plan      = target['plan']
+        days      = plan['days']
+        date_str  = target.get('interview_date', '')
+        total     = len(days)
+        completed = sum(1 for d in days if d.get('completed'))
+        bar_len   = 20
+        filled    = int(bar_len * completed / total) if total else 0
+        bar       = '█' * filled + '░' * (bar_len - filled)
+        pct       = int(100 * completed / total) if total else 0
+
+        print(f"\n{BOLD}{target['company']} — {target['role']}{RESET}")
+        print(f"Interview: {date_str}  ·  {plan.get('days_remaining',0)}d remaining")
+        print(f"Plan: {bar} {pct}%  ({completed}/{total} days)\n")
+
+        today_str = datetime.now().date().strftime('%Y-%m-%d')
+        shown = 0
+        for d in days:
+            if d.get('completed'):
+                continue
+            if shown >= 7:
+                break
+            focus  = d.get('focus', d.get('type', ''))
+            probs  = ', '.join(d.get('problems', [])) or f"({d['type']})"
+            today_marker = f"  {GREEN}← today{RESET}" if d['date'] == today_str else ""
+            print(f"  Day {d['day']:2d}  {d['date']}  [ ]  {MAGENTA}{focus}{RESET}: {probs}{today_marker}")
+            shown += 1
+
+        mocks  = plan.get('mock_sessions_completed', 0)
+        mock_t = plan.get('mock_sessions_target', 3)
+        print(f"\n  Mocks: {mocks}/{mock_t}  {'■'*mocks}{'□'*(mock_t-mocks)}\n")
+
+    elif sub == 'today':
+        tid = getattr(args, 'target', None) or config.get('active_target')
+        if not tid:
+            print_error("No active target.")
+            return
+        target = config.get('targets', {}).get(tid)
+        if not target or not target.get('plan', {}).get('days'):
+            print_error("No plan found. Generate one: grind plan generate")
+            return
+
+        plan      = target['plan']
+        today_str = datetime.now().date().strftime('%Y-%m-%d')
+        today_day = next(
+            (d for d in plan['days'] if d.get('date') == today_str and not d.get('completed')),
+            next((d for d in plan['days'] if not d.get('completed')), None)
+        )
+        if not today_day:
+            print_success("All plan days completed!")
+            return
+
+        rows          = parse_memory()
+        solved_slugs  = {r['slug'] for r in rows}
+        gap_scores    = compute_gap_scores(rows, config.get('gap_overrides', {}))
+        today_date    = datetime.now().date()
+        due_reviews   = [r for r in rows
+                         if datetime.strptime(r['next_review'], '%Y-%m-%d').date() <= today_date]
+
+        print(f"\n{BOLD}Today — {target['company']} (Day {today_day['day']} of {len(plan['days'])}){RESET}\n")
+        for slug in today_day.get('problems', []):
+            check = f"{GREEN}[x]{RESET}" if slug in solved_slugs else "[ ]"
+            topic = slug_to_topic(slug)
+            gap   = gap_scores.get(topic, '')
+            if gap == 'weak':    gap_label = f" {DIM}·{RESET} {RED}{gap}{RESET}"
+            elif gap == 'unknown': gap_label = f" {DIM}·{RESET} {DIM}{gap}{RESET}"
+            elif gap == 'developing': gap_label = f" {DIM}·{RESET} {YELLOW}{gap}{RESET}"
+            else: gap_label = ''
+            print(f"  {check} {slug}{gap_label}")
+
+        if due_reviews:
+            print(f"\n  {DIM}── SM-2 reviews due ──{RESET}")
+            for r in due_reviews[:3]:
+                print(f"  [ ] {r['slug']}  {DIM}({r['topic']} · review){RESET}")
+
+        print(f"\n  {DIM}/solve <slug>  ·  /mock  ·  /behavioral{RESET}\n")
+
+    elif sub == 'regenerate':
+        tid = getattr(args, 'target', None) or config.get('active_target')
+        if not tid:
+            print_error("No active target.")
+            return
+        target = config.get('targets', {}).get(tid)
+        if not target:
+            print_error(f"Target '{tid}' not found.")
+            return
+
+        # Preserve completed days and mock count
+        old_plan      = target.get('plan', {})
+        completed_days = [d for d in old_plan.get('days', []) if d.get('completed')]
+        mocks_done     = old_plan.get('mock_sessions_completed', 0)
+
+        # Clear and regenerate
+        target['plan'] = {}
+        save_config(config)
+        config = load_config()   # reload
+        ok, msg = _generate_plan_for_target(config, tid)
+        if not ok:
+            print_error(msg)
+            return
+
+        # Re-attach completed days at front
+        if completed_days:
+            config  = load_config()
+            target  = config['targets'][tid]
+            plan    = target['plan']
+            offset  = len(completed_days)
+            for d in plan['days']:
+                d['day'] += offset
+            plan['days']                    = completed_days + plan['days']
+            plan['mock_sessions_completed'] = mocks_done
+            save_config(config)
+
+        n = len(config['targets'][tid]['plan']['days'])
+        print_success(f"Plan regenerated. {len(completed_days)} completed day(s) preserved. {n} days total.")
+
+    else:
+        print_error(f"Unknown plan subcommand: {sub}")
+
+
+# ---------------------------------------------------------------------------
+# PROGRESS  (enhanced with gap scores + behavioral patterns)
+# ---------------------------------------------------------------------------
+
+def cmd_progress(args):
+    rows = parse_memory()
     if not rows:
         print_info("No problems logged yet. Start with: /solve <slug> <lang>")
         return
 
-    today = datetime.now().date()
-    config = load_config()
-    active_track = config.get('active_track', 'blind75')
+    today         = datetime.now().date()
+    config        = load_config()
+    active_track  = config.get('active_track', 'blind75')
+    active_target = config.get('active_target')
+    gap_overrides = config.get('gap_overrides', {})
 
-    # Due for review
     due = []
     for r in rows:
         try:
-            review_date = datetime.strptime(r['next_review'], '%Y-%m-%d').date()
-            if review_date <= today:
-                days_overdue = (today - review_date).days
-                due.append((r['slug'], r['topic'], days_overdue))
+            rev_date = datetime.strptime(r['next_review'], '%Y-%m-%d').date()
+            if rev_date <= today:
+                due.append((r['slug'], r['topic'], (today - rev_date).days))
         except ValueError:
             pass
 
-    # Recent solves (last 7 days)
     recent = []
     for r in rows:
         try:
-            solve_date = datetime.strptime(r['date'], '%Y-%m-%d').date()
-            if (today - solve_date).days <= 7:
+            if (today - datetime.strptime(r['date'], '%Y-%m-%d').date()).days <= 7:
                 recent.append((r['slug'], r['date'], r['rating']))
         except ValueError:
             pass
 
-    # Streak
-    solve_dates = set()
-    for r in rows:
-        try:
-            solve_dates.add(datetime.strptime(r['date'], '%Y-%m-%d').date())
-        except ValueError:
-            pass
-
-    streak = 0
-    check_date = today
-    while check_date in solve_dates:
+    solve_dates = {datetime.strptime(r['date'], '%Y-%m-%d').date() for r in rows}
+    streak, check = 0, today
+    while check in solve_dates:
         streak += 1
-        check_date -= timedelta(days=1)
+        check  -= timedelta(days=1)
 
-    # Unique problems solved
-    unique_slugs = set(r['slug'] for r in rows)
+    unique_slugs = {r['slug'] for r in rows}
 
-    # Track progress
-    bank = load_problems()
-    track_info = ""
+    print(f"\n{BOLD}Progress{RESET}")
+    print(f"{DIM}{'─' * 40}{RESET}\n")
+    print(f"  {BOLD}Problems solved:{RESET} {len(unique_slugs)}")
+
+    bank         = load_problems()
     next_unsolved = None
     if bank:
         tracks = bank.get('tracks', {})
         if active_track in tracks:
-            track = tracks[active_track]
-            track_problems = track['problems']
-            track_solved = sum(1 for p in track_problems if p['slug'] in unique_slugs)
-            track_total = len(track_problems)
-            track_info = f"{track['name']}: {track_solved}/{track_total}"
-            # Find next unsolved
-            for p in track_problems:
-                if p['slug'] not in unique_slugs:
-                    next_unsolved = p
-                    break
+            t  = tracks[active_track]
+            ts = sum(1 for p in t['problems'] if p['slug'] in unique_slugs)
+            print(f"  {BOLD}Track:{RESET} {t['name']} {ts}/{len(t['problems'])}")
+            next_unsolved = next((p for p in t['problems'] if p['slug'] not in unique_slugs), None)
 
-    # Print summary
-    print(f"\n{BOLD}Progress{RESET}")
-    print(f"{DIM}{'─' * 40}{RESET}\n")
+    print(f"  {BOLD}Streak:{RESET} {streak} day{'s' if streak != 1 else ''}")
 
-    print(f"  {BOLD}Problems solved:{RESET} {len(unique_slugs)}")
-    if track_info:
-        print(f"  {BOLD}Track progress:{RESET} {track_info}")
-    print(f"  {BOLD}Current streak:{RESET} {streak} day{'s' if streak != 1 else ''}")
+    if active_target:
+        t = config.get('targets', {}).get(active_target, {})
+        date_s = t.get('interview_date', '')
+        if date_s:
+            try:
+                d = (datetime.strptime(date_s, '%Y-%m-%d').date() - today).days
+                label = f"{d}d until interview" if d >= 0 else f"interview was {-d}d ago"
+                print(f"  {BOLD}Target:{RESET} {t.get('company','')} — {label}")
+            except ValueError:
+                pass
+        plan = t.get('plan', {})
+        if plan.get('days'):
+            total  = len(plan['days'])
+            done   = sum(1 for d in plan['days'] if d.get('completed'))
+            mocks  = plan.get('mock_sessions_completed', 0)
+            mock_t = plan.get('mock_sessions_target', 3)
+            bar    = '█' * int(20*done/total) + '░' * (20 - int(20*done/total)) if total else '░'*20
+            print(f"  {BOLD}Plan:{RESET}  {bar} {int(100*done/total) if total else 0}% ({done}/{total})")
+            print(f"  {BOLD}Mocks:{RESET} {mocks}/{mock_t}  {'■'*mocks}{'□'*(mock_t-mocks)}")
     print()
 
     if due:
         due.sort(key=lambda x: -x[2])
         print(f"  {YELLOW}{BOLD}Due for review:{RESET}")
         for slug, topic, overdue in due:
-            if overdue > 0:
-                print(f"    - {slug} ({topic}) — overdue by {overdue}d")
-            else:
-                print(f"    - {slug} ({topic}) — due today")
+            label = f"overdue {overdue}d" if overdue > 0 else "due today"
+            print(f"    - {slug} ({topic}) — {label}")
         print()
     else:
         print(f"  {GREEN}No reviews due today.{RESET}\n")
 
-    if recent:
-        print(f"  {BOLD}Recent solves (last 7d):{RESET}")
-        for slug, date, rating in recent:
-            print(f"    - {slug} on {date} (rating: {rating}/5)")
-        print()
+    # Gap analysis
+    gap_scores = compute_gap_scores(rows, gap_overrides)
+    groups     = {'unknown': [], 'weak': [], 'developing': [], 'strong': []}
+    for t, s in gap_scores.items():
+        groups[s].append(t)
 
-    # Suggestions
+    topic_ratings = defaultdict(list)
+    for r in rows:
+        if r.get('topic') and r.get('rating'):
+            topic_ratings[r['topic']].append(r['rating'])
+
+    print(f"  {BOLD}Gap analysis:{RESET}")
+    if groups['unknown']:
+        print(f"    {DIM}Unknown:    {' · '.join(groups['unknown'])}{RESET}")
+    if groups['weak']:
+        weak_d = [f"{t} ({sum(topic_ratings[t])/len(topic_ratings[t]):.1f})" if topic_ratings[t] else t
+                  for t in groups['weak']]
+        print(f"    {RED}Weak:       {' · '.join(weak_d)}{RESET}")
+    if groups['developing']:
+        print(f"    {YELLOW}Developing: {' · '.join(groups['developing'])}{RESET}")
+    if groups['strong']:
+        print(f"    {GREEN}Strong:     {' · '.join(groups['strong'])}{RESET}")
+    print()
+
+    # Behavioral patterns (only if ≥5 events)
+    events = load_behavior_events()
+    if len(events) >= 5:
+        patterns = compute_behavior_patterns(events)
+        concerns  = {t: p for t, p in patterns.items()
+                     if any(f in p['flags'] for f in ['quick_give_up', 'hint_negative', 'overconfident'])}
+        positives = {t: p for t, p in patterns.items() if 'hint_positive' in p['flags']}
+        if concerns or positives:
+            print(f"  {BOLD}Behavioral patterns ({len(events)} hint events):{RESET}")
+            for t, p in concerns.items():
+                print(f"    {RED}{t}:{RESET} {', '.join(p['flags'])}")
+            for t, p in positives.items():
+                if t not in concerns:
+                    print(f"    {GREEN}{t}:{RESET} hints working well")
+            print()
+
+    # Suggestion
     if due:
-        print(f"  {CYAN}{BOLD}Suggested next:{RESET} Review {due[0][0]} ({due[0][1]})")
+        print(f"  {CYAN}{BOLD}Suggested:{RESET} Review {due[0][0]} ({due[0][1]})")
+    elif active_target and config.get('targets', {}).get(active_target, {}).get('plan', {}).get('days'):
+        print(f"  {CYAN}{BOLD}Suggested:{RESET} /mock --round technical  ·  /plan today")
     elif next_unsolved:
-        slug = next_unsolved['slug']
-        topic = next_unsolved.get('topic', '')
-        diff = next_unsolved.get('difficulty', '')
-        print(f"  {CYAN}{BOLD}Suggested next:{RESET} {slug} ({topic}, {diff})")
-    else:
-        topic_counts = {}
-        for r in rows:
-            if r['topic']:
-                topic_counts[r['topic']] = topic_counts.get(r['topic'], 0) + 1
-        if topic_counts:
-            least = min(topic_counts, key=topic_counts.get)
-            print(f"  {CYAN}{BOLD}Suggested next:{RESET} Practice more {least} problems")
-
+        print(f"  {CYAN}{BOLD}Suggested:{RESET} {next_unsolved['slug']} ({next_unsolved.get('topic','')}, {next_unsolved.get('difficulty','')})")
     print()
 
 
-# --- Main ---
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser(
         prog='grind',
         description='Your AI coding coach that never gives you the answer.',
-        epilog='Start a coaching session: /solve <slug> <lang>',
+        epilog='Start a session: /setup  ·  First problem: /solve two-sum cpp',
     )
-    subparsers = parser.add_subparsers(dest='command')
+    sub = parser.add_subparsers(dest='command')
 
-    # init
-    subparsers.add_parser('init', help='First-time setup')
+    sub.add_parser('init', help='First-time setup')
 
-    # new
-    new_parser = subparsers.add_parser('new', help='Create a new problem workspace')
-    new_parser.add_argument('slug', help='Problem slug (e.g. two-sum)')
-    new_parser.add_argument('lang', choices=['python', 'cpp', 'java'], help='Language')
+    p_new = sub.add_parser('new', help='Scaffold a problem workspace')
+    p_new.add_argument('slug')
+    p_new.add_argument('lang', choices=['python', 'cpp', 'java'])
 
-    # run
-    run_parser = subparsers.add_parser('run', help='Run solution (auto-reads from input.txt)')
-    run_parser.add_argument('filename', help='Problem slug or filename')
+    p_run = sub.add_parser('run', help='Run a solution (reads input.txt automatically)')
+    p_run.add_argument('filename', help='Problem slug or file path')
 
-    # log
-    log_parser = subparsers.add_parser('log', help='Log a solved problem')
-    log_parser.add_argument('slug', help='Problem slug')
-    log_parser.add_argument('rating', type=int, choices=[1, 2, 3, 4, 5], help='Self-assessment (1-5)')
-    log_parser.add_argument('--time', type=int, help='Time spent in minutes')
-    log_parser.add_argument('--hints', type=int, default=0, help='Number of hints used')
-    log_parser.add_argument('--topic', type=str, help='Problem topic (e.g. arrays, dp)')
-    log_parser.add_argument('--difficulty', type=str, help='Difficulty (easy, medium, hard)')
+    p_log = sub.add_parser('log', help='Log a solved problem with SM-2 spaced repetition')
+    p_log.add_argument('slug')
+    p_log.add_argument('rating', type=int, choices=[1, 2, 3, 4, 5])
+    p_log.add_argument('--time', type=int, metavar='MIN', help='Time spent in minutes')
+    p_log.add_argument('--hints', type=int, default=0, help='Number of hints used')
+    p_log.add_argument('--topic', type=str)
+    p_log.add_argument('--difficulty', type=str)
+    p_log.add_argument('--notes', type=str, help='Free-text notes (not stored in memory.md)')
 
-    # list
-    list_parser = subparsers.add_parser('list', help='Browse problem bank')
-    list_parser.add_argument('--track', type=str, help='Track name (default: active track)')
-    list_parser.add_argument('--topic', type=str, help='Filter by topic')
-    list_parser.add_argument('--difficulty', type=str, help='Filter by difficulty')
+    p_list = sub.add_parser('list', help='Browse problem bank')
+    p_list.add_argument('--track', type=str)
+    p_list.add_argument('--topic', type=str)
+    p_list.add_argument('--difficulty', type=str)
 
-    # track
-    track_parser = subparsers.add_parser('track', help='View or switch active track')
-    track_parser.add_argument('name', nargs='?', help='Track name to switch to')
+    p_track = sub.add_parser('track', help='View or switch active track')
+    p_track.add_argument('name', nargs='?')
 
-    # archive
-    subparsers.add_parser('archive', help='Archive old rows from memory.md')
+    sub.add_parser('archive', help='Archive old rows from memory.md')
+    sub.add_parser('progress', help='Show progress summary with gap analysis')
 
-    # progress
-    subparsers.add_parser('progress', help='Show progress summary')
+    # --- target ---
+    p_target = sub.add_parser('target', help='Manage interview targets')
+    ts = p_target.add_subparsers(dest='target_cmd')
+    t_add = ts.add_parser('add')
+    t_add.add_argument('--company', required=True)
+    t_add.add_argument('--role', required=True)
+    t_add.add_argument('--team')
+    t_add.add_argument('--url')
+    t_add.add_argument('--date', metavar='YYYY-MM-DD')
+    t_add.add_argument('--lang', choices=['cpp', 'python', 'java'])
+    ts.add_parser('list')
+    t_active = ts.add_parser('active')
+    t_active.add_argument('id', nargs='?')
+    t_remove = ts.add_parser('remove')
+    t_remove.add_argument('id')
+    t_show = ts.add_parser('show')
+    t_show.add_argument('id', nargs='?')
+    t_update = ts.add_parser('update')
+    t_update.add_argument('id')
+    t_update.add_argument('--field', required=True)
+    t_update.add_argument('--value', required=True)
+    t_merge = ts.add_parser('merge')
+    t_merge.add_argument('id1')
+    t_merge.add_argument('id2')
 
-    args = parser.parse_args()
+    # --- resume ---
+    p_resume = sub.add_parser('resume', help='Manage resume context')
+    rs = p_resume.add_subparsers(dest='resume_cmd')
+    r_set = rs.add_parser('set')
+    r_set.add_argument('--path')
+    r_set.add_argument('--profile', metavar='JSON', help='Extracted profile as JSON string')
+    rs.add_parser('show')
+    rs.add_parser('clear')
 
+    # --- session ---
+    p_session = sub.add_parser('session', help='Manage coaching sessions')
+    ss = p_session.add_subparsers(dest='session_cmd')
+    s_start = ss.add_parser('start')
+    s_start.add_argument('--target')
+    s_event = ss.add_parser('event')
+    s_event.add_argument('slug')
+    s_event.add_argument('event_type',
+        choices=['presented', 'hint_given', 'hint_assessed', 'rating_calibration',
+                 'mock_started', 'logged'])
+    s_event.add_argument('--data', metavar='JSON')
+    ss.add_parser('end')
+    ss.add_parser('recover')
+
+    # --- behavior ---
+    p_behavior = sub.add_parser('behavior', help='User behavioral analytics')
+    bs = p_behavior.add_subparsers(dest='behavior_cmd')
+    bs.add_parser('summary')
+    b_report = bs.add_parser('report')
+    b_report.add_argument('--topic')
+    b_report.add_argument('--slug')
+    bs.add_parser('export')
+    b_reset = bs.add_parser('reset')
+    b_reset.add_argument('--force', action='store_true', help='Skip confirmation prompt')
+
+    # --- speak ---
+    p_speak = sub.add_parser('speak', help='Speak text aloud (TTS)')
+    p_speak.add_argument('text')
+    p_speak.add_argument('--rate', type=int, default=175, metavar='WPM')
+
+    # --- gap ---
+    p_gap = sub.add_parser('gap', help='View and override gap analysis')
+    gs = p_gap.add_subparsers(dest='gap_cmd')
+    gs.add_parser('show')
+    g_set = gs.add_parser('set')
+    g_set.add_argument('topic')
+    g_set.add_argument('status', choices=['unknown', 'weak', 'developing', 'strong'])
+
+    # --- plan ---
+    p_plan = sub.add_parser('plan', help='Study plan management')
+    ps = p_plan.add_subparsers(dest='plan_cmd')
+    p_gen = ps.add_parser('generate')
+    p_gen.add_argument('--target')
+    p_show = ps.add_parser('show')
+    p_show.add_argument('--target')
+    p_today = ps.add_parser('today')
+    p_today.add_argument('--target')
+    p_regen = ps.add_parser('regenerate')
+    p_regen.add_argument('--target')
+
+    # --- dispatch ---
+    parsed = parser.parse_args()
     commands = {
-        'init': cmd_init,
-        'new': cmd_new,
-        'run': cmd_run,
-        'log': cmd_log,
-        'list': cmd_list,
-        'track': cmd_track,
-        'archive': cmd_archive,
+        'init':     cmd_init,
+        'new':      cmd_new,
+        'run':      cmd_run,
+        'log':      cmd_log,
+        'list':     cmd_list,
+        'track':    cmd_track,
+        'archive':  cmd_archive,
         'progress': cmd_progress,
+        'target':   cmd_target,
+        'resume':   cmd_resume,
+        'session':  cmd_session,
+        'behavior': cmd_behavior,
+        'speak':    cmd_speak,
+        'gap':      cmd_gap,
+        'plan':     cmd_plan,
     }
-
-    handler = commands.get(args.command)
+    handler = commands.get(parsed.command)
     if handler:
-        handler(args)
+        handler(parsed)
     else:
         parser.print_help()
 
