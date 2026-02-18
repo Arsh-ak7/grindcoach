@@ -11,13 +11,20 @@ An open-source, CLI-native LeetCode coaching system that uses AI agents (Claude 
 ```bash
 git clone https://github.com/YOUR_USERNAME/leet-coach.git
 cd leet-coach
-./grind init
 
-# Start your first problem (in Claude Code or Gemini CLI)
+# Open Claude Code or Gemini CLI, then:
+/setup
+```
+
+Full onboarding in one command. The agent runs everything — resume parsing, job description analysis, study plan generation. You don't type a single terminal command.
+
+Or skip setup and go straight to a problem:
+
+```bash
 /solve two-sum cpp
 ```
 
-That's it. No pip install, no API keys, no config files. Just Python 3 and an AI agent.
+No pip install, no API keys, no config files. Just Python 3 and an AI agent.
 
 ## How It Works
 
@@ -26,19 +33,21 @@ You ←→ AI Agent (Claude Code / Gemini CLI)
           ↕
       coach_persona.md    ← Socratic rules: never reveal answers
           ↕
-        grind CLI          ← Scaffold, run, track progress (Python 3, zero deps)
+        grind CLI          ← Everything deterministic (Python 3, zero deps)
           ↕
       problems.json        ← Curated tracks (Blind 75, NeetCode 150)
-          ↕
-       memory.md           ← SM-2 spaced repetition schedule
+      memory.md            ← SM-2 spaced repetition schedule
+      behavior.jsonl       ← Your hint history and behavioral patterns
+      .lc_config.json      ← Targets, plan, gap scores
 ```
 
-The AI agent follows strict coaching rules defined in `coach_persona.md`:
+The AI agent follows strict coaching rules:
 - **Present the problem, then shut up.** Wait for you to think first.
 - **Never volunteer hints.** Only when you ask, and even then, progressively.
 - **Never give the answer.** Guide with questions, not solutions.
+- **Never skip hint levels.** Each hint earned, not handed out.
 
-The `grind` CLI handles everything deterministic — scaffolding, compilation, spaced repetition math. The AI handles everything that needs judgment — coaching, hints, code review.
+The `grind` CLI handles everything deterministic — scaffolding, compilation, SM-2 math, session tracking, plan generation, gap analysis. The AI handles everything that needs judgment — coaching, hints, behavioral interviews, company research.
 
 ## Commands
 
@@ -46,24 +55,33 @@ The `grind` CLI handles everything deterministic — scaffolding, compilation, s
 
 | Command | What it does |
 |---------|-------------|
-| `/solve two-sum cpp` | Scaffold a problem, present it, coach you through it |
-| `/solve <any-leetcode-url> python` | Works with ANY LeetCode problem, not just the bank |
-| `/hint` | Get a progressive hint (escalates: question → category → technique → walkthrough) |
-| `/review` | Review your solution: complexity, edge cases, alternatives. Logs to spaced repetition. |
-| `/mock --topic dp` | Timed mock interview with a random unsolved problem |
-| `/progress` | Progress summary with track-aware suggestions |
+| `/setup [--resume <path>] [--jobs <url,...>]` | Full onboarding: resume + targets + study plan |
+| `/solve two-sum cpp` | Scaffold + coach through any problem |
+| `/solve <leetcode-url> python` | Works with ANY LeetCode problem, not just the bank |
+| `/hint` | Progressive hint (question → category → technique → structural → walkthrough) |
+| `/review` | Solution review + rating calibration + immediate logging |
+| `/mock [--topic dp] [--verbal]` | Timed mock interview, optionally spoken aloud |
+| `/behavioral [--company Google]` | STAR behavioral coaching calibrated to company values |
+| `/research [--company BMW]` | Fetch + synthesize company interview intelligence |
+| `/plan [show|today|regenerate]` | Study plan: what to work on and why |
+| `/progress` | Gap scores + behavioral patterns + today's agenda |
 
-### CLI Commands (terminal)
+### CLI Commands (all run by the agent — you rarely type these directly)
 
 ```bash
-grind init                                    # First-time setup
-grind new <slug> <lang>                       # Scaffold a problem
-grind run <slug>                              # Compile and run
-grind log <slug> <rating> [--time] [--hints]  # Log with SM-2 spaced repetition
-grind list [--track X] [--topic Y]            # Browse problem bank
-grind track [name]                            # View/switch tracks
-grind progress                                # Due reviews, streak, suggestions
-grind archive                                 # Archive old memory rows
+grind init                                                 # First-time setup
+grind new <slug> <lang>                                    # Scaffold a problem
+grind run <slug>                                           # Compile and run
+grind log <slug> <rating> [--time] [--hints]               # Log with SM-2
+grind list [--track X] [--topic Y] [--diff Z]              # Browse problem bank
+grind progress                                             # Gap scores + patterns
+grind target add --company <n> --role <r> --date <d>       # Add interview target
+grind target merge <id1> <id2>                             # Combine prep tracks
+grind session start / end / recover                        # Session tracking
+grind behavior summary                                     # Behavioral coaching model
+grind gap show / set <topic> <weak|strong>                 # Gap analysis
+grind plan generate / show / today                         # Study plan
+grind speak "<text>"                                       # TTS (macOS/Linux/Windows)
 ```
 
 ## Problem Bank
@@ -82,33 +100,41 @@ Two curated tracks included, with more coming:
 ```
 leet-coach/
 ├── grind                 # CLI tool (Python 3, zero external deps)
-├── coach_persona.md      # Socratic coaching rules (shared by all agents)
+├── coach_persona.md      # Socratic coaching rules + anti-spoiler rules
 ├── problems.json         # Problem bank index (Blind 75, NeetCode 150)
 ├── CLAUDE.md             # Claude Code agent config
 ├── GEMINI.md             # Gemini CLI agent config
 ├── AGENTS.md             # Canonical agent config (any agent)
 ├── templates/            # Starter files (C++, Python, Java)
 ├── utils/                # Language helpers (STL printing, debug macros)
-├── .claude/skills/       # Claude Code slash commands
-└── .gemini/commands/     # Gemini CLI slash commands
+├── .claude/skills/       # Claude Code slash commands (9 skills)
+├── .gemini/commands/     # Gemini CLI commands (9 commands, parity)
+└── tests/                # 79 unit tests + agent red-team test suite
 ```
 
-**User data (gitignored):**
+**User data (gitignored — never committed):**
 - `problems/` — Your solutions
-- `memory.md` — Your spaced repetition progress
-- `.lc_config.json` — Your active track preference
+- `memory.md` — Your SM-2 spaced repetition schedule
+- `.lc_config.json` — Targets, plan, gap overrides
+- `.session.json` — Ephemeral session state (deleted on clean exit)
+- `behavior.jsonl` — Your hint history and behavioral patterns
+
+**Key design rule:** All stateful writes go through `grind`. The agent never writes to config files directly. This is what makes it agent-agnostic.
 
 ## Why Not Just Use ChatGPT?
 
 | | leet-coach | Raw ChatGPT/Claude | LeetCopilot | Anki + LeetCode |
 |---|---|---|---|---|
 | **Socratic coaching** | Strict rules, never reveals answers | Will give answer if you ask | N/A | N/A |
-| **Spaced repetition** | Built-in SM-2 | None | None | Manual card creation |
+| **Spaced repetition** | Built-in SM-2 (behavior-driven) | None | None | Manual card creation |
+| **Company intelligence** | Fetches + synthesizes interview reports | None | None | None |
+| **Behavioral coaching** | STAR + company calibration | Generic | N/A | N/A |
+| **Study plan** | Gap-driven, adapts to your history | None | None | Manual |
 | **CLI-native** | Runs in your terminal | Browser-based | Browser extension | Separate apps |
 | **Problem scaffolding** | Auto-scaffolds with test harness | Copy-paste | N/A | N/A |
-| **Mock interviews** | Timed sessions with coaching | No structure | N/A | N/A |
-| **Works offline** | CLI works offline, AI needs connection | Needs connection | Needs connection | Partial |
-| **Agent-agnostic** | Claude Code + Gemini CLI | Locked to one provider | Locked to one provider | N/A |
+| **Mock interviews** | Timed + verbal mode + company-calibrated | No structure | N/A | N/A |
+| **Behavioral analytics** | Tracks hint patterns per topic | None | None | None |
+| **Agent-agnostic** | Claude Code + Gemini CLI | Locked to one | Locked to one | N/A |
 | **Cost** | Free + your existing AI subscription | Subscription | Subscription | Free/Paid |
 
 ## Supported Languages
