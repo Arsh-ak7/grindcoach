@@ -96,3 +96,44 @@ def test_topics_not_in_rows_remain_unknown(grind):
     # dp, graphs etc. not in rows — should be 'unknown'
     unknown_topics = [t for t, s in scores.items() if t != "arrays" and s == "unknown"]
     assert len(unknown_topics) > 0
+
+
+# --- Time-decay tests ---
+
+def test_decay_fresh_beats_stale(grind):
+    from datetime import date, timedelta
+    today  = date(2026, 2, 19)
+    future = (today + timedelta(days=10)).strftime('%Y-%m-%d')  # weight ≈ 1.0
+    past   = (today - timedelta(days=90)).strftime('%Y-%m-%d')  # weight ≈ 0.05
+
+    old_rows = [{"slug": f"o{i}", "topic": "dp", "rating": 2,
+                 "next_review": past} for i in range(3)]
+    new_rows = [{"slug": f"n{i}", "topic": "dp", "rating": 5,
+                 "next_review": future} for i in range(3)]
+    scores = grind.compute_gap_scores(old_rows + new_rows, today=today)
+    assert scores.get("dp") == "strong"   # recent 5s dominate
+
+
+def test_decay_stale_strong_yields_to_fresh_weak(grind):
+    from datetime import date, timedelta
+    today  = date(2026, 2, 19)
+    future = (today + timedelta(days=10)).strftime('%Y-%m-%d')
+    past   = (today - timedelta(days=90)).strftime('%Y-%m-%d')
+
+    old_rows = [{"slug": f"o{i}", "topic": "arrays", "rating": 5,
+                 "next_review": past} for i in range(3)]
+    new_rows = [{"slug": f"n{i}", "topic": "arrays", "rating": 1,
+                 "next_review": future} for i in range(3)]
+    scores = grind.compute_gap_scores(old_rows + new_rows, today=today)
+    assert scores.get("arrays") in ("weak", "developing")   # recent 1s drag score
+
+
+def test_decay_same_date_is_unchanged(grind):
+    """All rows with same next_review → weights cancel → identical to simple avg."""
+    from datetime import date
+    today = date(2026, 2, 19)
+    rows  = [{"slug": f"p{i}", "topic": "graphs", "rating": r,
+              "next_review": "2026-01-02"}
+             for i, r in enumerate([3, 4, 3, 4, 3])]
+    scores = grind.compute_gap_scores(rows, today=today)
+    assert scores.get("graphs") == "developing"   # avg 3.4, unchanged

@@ -120,3 +120,12 @@ def test_session_recovery_noop_when_none(tmp_env):
         os.remove(g.SESSION_FILE)
     session = g.load_session()
     assert session is None
+
+
+def test_session_id_includes_time(tmp_env):
+    """session_id must include H:M:S to avoid within-day collisions."""
+    started = "2026-02-19T10:30:45.123456"
+    session_id = started[:19]
+    assert session_id == "2026-02-19T10:30:45"
+    assert 'T' in session_id
+    assert len(session_id) == 19

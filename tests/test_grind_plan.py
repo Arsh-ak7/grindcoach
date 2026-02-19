@@ -126,3 +126,99 @@ def test_plan_regenerate_preserves_completed_days(tmp_env):
     plan = g.load_config()["targets"]["test-001"]["plan"]
     # Plan should still exist and have days
     assert len(plan["days"]) > 0
+
+
+def test_plan_today_reviews_before_new(tmp_env, capsys):
+    g, tmp = tmp_env
+    from datetime import datetime, timedelta
+    today = datetime.now()
+    overdue_date = (today - timedelta(days=5)).strftime('%Y-%m-%d')
+
+    # Write a row with an overdue review
+    rows = [{"slug": "two-sum", "topic": "arrays", "rating": 4,
+             "difficulty": "easy", "date": overdue_date,
+             "ease": 2.5, "interval": "1d", "hints": 0, "time": "20m",
+             "next_review": overdue_date}]
+    g.write_memory(rows)
+
+    config = make_config(days_away=20)
+    config['targets']['test-001']['plan'] = {
+        'days': [{'day': 1, 'date': today.strftime('%Y-%m-%d'), 'type': 'coding',
+                  'problems': ['three-sum'], 'focus': 'arrays', 'completed': False}],
+        'days_remaining': 20, 'mock_sessions_target': 3, 'mock_sessions_completed': 0,
+    }
+    g.save_config(config)
+    import argparse
+    g.cmd_plan(argparse.Namespace(plan_cmd='today', target=None))
+    out = capsys.readouterr().out
+    assert '[rev]' in out or 'overdue' in out
+
+
+# --- Plan auto-completion tests ---
+
+def test_plan_day_completes_when_all_slugs_logged(tmp_env):
+    g, tmp = tmp_env
+    config = make_config(days_away=20)
+    config['targets']['test-001']['plan'] = {
+        'days': [{'day': 1, 'date': '2026-02-19', 'type': 'coding',
+                  'problems': ['two-sum', 'three-sum'],
+                  'focus': 'arrays', 'completed': False}],
+        'days_remaining': 20, 'mock_sessions_target': 3, 'mock_sessions_completed': 0,
+    }
+    g.save_config(config)
+
+    rows = [
+        {"slug": "two-sum",   "topic": "arrays", "rating": 4,
+         "difficulty": "easy", "date": "2026-02-19", "ease": 2.5,
+         "interval": "1d", "hints": 0, "time": "20m", "next_review": "2026-02-20"},
+        {"slug": "three-sum", "topic": "arrays", "rating": 3,
+         "difficulty": "medium", "date": "2026-02-19", "ease": 2.4,
+         "interval": "1d", "hints": 1, "time": "30m", "next_review": "2026-02-20"},
+    ]
+    g.write_memory(rows)
+    solved_set = {r['slug'] for r in rows}
+
+    fresh = g.load_config()
+    g._mark_plan_progress(fresh, solved_set)
+
+    reloaded = g.load_config()
+    assert reloaded['targets']['test-001']['plan']['days'][0]['completed'] is True
+
+
+def test_plan_day_not_complete_when_partial(tmp_env):
+    g, tmp = tmp_env
+    config = make_config(days_away=20)
+    config['targets']['test-001']['plan'] = {
+        'days': [{'day': 1, 'date': '2026-02-19', 'type': 'coding',
+                  'problems': ['two-sum', 'three-sum'],
+                  'focus': 'arrays', 'completed': False}],
+        'days_remaining': 20, 'mock_sessions_target': 3, 'mock_sessions_completed': 0,
+    }
+    g.save_config(config)
+    rows = [{"slug": "two-sum", "topic": "arrays", "rating": 4,
+             "difficulty": "easy", "date": "2026-02-19", "ease": 2.5,
+             "interval": "1d", "hints": 0, "time": "20m", "next_review": "2026-02-20"}]
+    g.write_memory(rows)
+    solved_set = {r['slug'] for r in rows}
+
+    fresh = g.load_config()
+    g._mark_plan_progress(fresh, solved_set)
+
+    reloaded = g.load_config()
+    assert reloaded['targets']['test-001']['plan']['days'][0]['completed'] is False
+
+
+def test_non_coding_days_not_auto_completed(tmp_env):
+    g, tmp = tmp_env
+    config = make_config(days_away=20)
+    config['targets']['test-001']['plan'] = {
+        'days': [{'day': 1, 'date': '2026-02-19', 'type': 'behavioral',
+                  'problems': [], 'focus': 'behavioral', 'completed': False}],
+        'days_remaining': 20, 'mock_sessions_target': 3, 'mock_sessions_completed': 0,
+    }
+    g.save_config(config)
+    g.write_memory([])
+    fresh = g.load_config()
+    g._mark_plan_progress(fresh, set())
+    reloaded = g.load_config()
+    assert reloaded['targets']['test-001']['plan']['days'][0]['completed'] is False

@@ -104,3 +104,30 @@ def test_write_over_existing(tmp_env):
     g.write_memory(make_rows(7))  # overwrite with more rows
     parsed = g.parse_memory()
     assert len(parsed) == 7
+
+
+# --- _append_notes tests ---
+
+def test_notes_creates_notes_md(tmp_env):
+    g, tmp = tmp_env
+    (tmp / "problems" / "two_sum").mkdir(parents=True)
+    g._append_notes("two-sum", "use a hash map", "2026-02-19", 4)
+    notes_path = tmp / "problems" / "two_sum" / "notes.md"
+    assert notes_path.exists()
+    assert "use a hash map" in notes_path.read_text()
+
+
+def test_notes_appends_not_overwrites(tmp_env):
+    g, tmp = tmp_env
+    (tmp / "problems" / "two_sum").mkdir(parents=True, exist_ok=True)
+    g._append_notes("two-sum", "first note", "2026-02-19", 4)
+    g._append_notes("two-sum", "second note", "2026-02-19", 5)
+    content = (tmp / "problems" / "two_sum" / "notes.md").read_text()
+    assert "first note" in content and "second note" in content
+
+
+def test_notes_creates_problem_dir_if_missing(tmp_env):
+    g, tmp = tmp_env
+    # No grind new called — dir doesn't exist yet
+    g._append_notes("new-slug", "note for unseen problem", "2026-02-19", 3)
+    assert (tmp / "problems" / "new_slug" / "notes.md").exists()

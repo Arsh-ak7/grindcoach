@@ -80,9 +80,12 @@ def load_config():
 
 
 def save_config(config):
-    with open(CONFIG_FILE, 'w') as f:
+    tmp = CONFIG_FILE + '.tmp'
+    with open(tmp, 'w') as f:
         json.dump(config, f, indent=2)
         f.write('\n')
+    os.replace(tmp, CONFIG_FILE)
+    shutil.copy2(CONFIG_FILE, CONFIG_FILE + '.bak')
 
 
 # ---------------------------------------------------------------------------
@@ -216,24 +219,39 @@ def sm2_calculate(rating, prev_ease=2.5, prev_interval=0, repetition=0):
 # Gap analysis  (behavior-driven, not resume-derived)
 # ---------------------------------------------------------------------------
 
-def compute_gap_scores(rows, overrides=None):
-    """Classify each topic as unknown / weak / developing / strong."""
+def compute_gap_scores(rows, overrides=None, today=None):
+    """Classify topics, weighting recent evidence more than stale evidence."""
     overrides = overrides or {}
-    topic_ratings = defaultdict(list)
+    if today is None:
+        today = datetime.now().date()
+
+    topic_weighted = defaultdict(list)  # topic → [(rating, weight)]
     for r in rows:
-        if r.get('topic') and r.get('rating'):
-            topic_ratings[r['topic']].append(r['rating'])
+        if not r.get('topic') or not r.get('rating'):
+            continue
+        try:
+            nr = datetime.strptime(r['next_review'], '%Y-%m-%d').date()
+            days_overdue = max(0, (today - nr).days)
+        except (ValueError, KeyError):
+            days_overdue = 0
+        weight = math.exp(-days_overdue / 30.0)
+        topic_weighted[r['topic']].append((r['rating'], weight))
+
     scores = {}
     for topic in get_all_topics():
         if topic in overrides:
             scores[topic] = overrides[topic]
             continue
-        rs = topic_ratings.get(topic, [])
-        if not rs:
+        pairs = topic_weighted.get(topic, [])
+        if not pairs:
             scores[topic] = 'unknown'
-        elif len(rs) < 3 or sum(rs) / len(rs) < 3.0:
+            continue
+        total_w = sum(w for _, w in pairs)
+        wavg    = sum(r * w for r, w in pairs) / total_w
+        n       = len(pairs)
+        if n < 3 or wavg < 3.0:
             scores[topic] = 'weak'
-        elif sum(rs) / len(rs) < 4.0:
+        elif wavg < 4.0:
             scores[topic] = 'developing'
         else:
             scores[topic] = 'strong'
@@ -594,8 +612,10 @@ def cmd_reset(args):
         MEMORY_FILE,
         os.path.join(PROJECT_ROOT, 'memory_archive.md'),
         CONFIG_FILE,
+        CONFIG_FILE + '.bak',
         SESSION_FILE,
         BEHAVIOR_FILE,
+        os.path.join(PROJECT_ROOT, 'behavior_archive.jsonl'),
     ]
     # Collect behavior reports
     import glob as _glob
@@ -740,7 +760,7 @@ def _run_file(filename):
             subprocess.run(['python3', filename], env=env, stdin=stdin_file)
 
         elif ext == '.cpp':
-            out_bin = os.path.join(PROJECT_ROOT, 'a.out')
+            out_bin = os.path.join(problem_dir, 'a.out')
             print_info("Compiling C++...")
             res = subprocess.run(['g++', '-std=c++17', filename, '-o', out_bin])
             if res.returncode == 0:
@@ -779,6 +799,43 @@ def _run_file(filename):
     elapsed = time_module.time() - start
     print(f"\n{DIM}Elapsed: {elapsed*1000:.0f}ms{RESET}" if elapsed < 1
           else f"\n{DIM}Elapsed: {elapsed:.2f}s{RESET}")
+
+
+def _mark_plan_progress(config, solved_set):
+    """
+    Check if any plan days are fully solved. Mark them complete and save config.
+    Returns True if any day was newly marked complete.
+    """
+    tid    = config.get('active_target')
+    target = config.get('targets', {}).get(tid) if tid else None
+    days   = (target or {}).get('plan', {}).get('days', [])
+    if not days:
+        return False
+
+    changed = False
+    for day in days:
+        if day.get('completed') or not day.get('problems'):
+            continue
+        if all(s in solved_set for s in day['problems']):
+            day['completed'] = True
+            changed = True
+
+    if changed:
+        save_config(config)
+        done  = sum(1 for d in days if d.get('completed'))
+        total = len(days)
+        print_info(f"Plan progress: {done}/{total} days complete.")
+    return changed
+
+
+def _append_notes(slug, notes, date, rating):
+    """Append a timestamped note to problems/<slug>/notes.md."""
+    problem_dir = resolve_problem_dir(slug)
+    os.makedirs(problem_dir, exist_ok=True)
+    notes_file = os.path.join(problem_dir, 'notes.md')
+    entry = f"\n## {date} (rating {rating})\n\n{notes}\n"
+    with open(notes_file, 'a') as f:
+        f.write(entry)
 
 
 def cmd_log(args):
@@ -826,6 +883,14 @@ def cmd_log(args):
         f"Logged {slug}: rating={rating}, ease={new_ease:.1f}, "
         f"interval={new_interval}d, next_review={next_review}"
     )
+    notes = getattr(args, 'notes', None)
+    if notes:
+        _append_notes(slug, notes, today, rating)
+        print_info(f"Note appended: problems/{slug_to_folder(slug)}/notes.md")
+    # Plan completion — reload config to avoid stale write
+    config = load_config()
+    solved_set = {r['slug'] for r in rows}
+    _mark_plan_progress(config, solved_set)
     if len(rows) > ARCHIVE_THRESHOLD:
         cmd_archive(None)
 
@@ -1248,7 +1313,7 @@ def cmd_session(args):
         if event_type in hint_event_types:
             record = {
                 'ts':         datetime.now().isoformat(),
-                'session_id': session['started_at'][:10],
+                'session_id': session['started_at'][:19],
                 'slug':       slug,
                 'topic':      slug_to_topic(slug),
                 'event':      event_type,
@@ -1324,10 +1389,11 @@ def cmd_session(args):
 def cmd_behavior(args):
     if not hasattr(args, 'behavior_cmd') or args.behavior_cmd is None:
         print(f"\n  {BOLD}grind behavior subcommands:{RESET}")
-        print(f"    summary                       Print user model (agent reads at session start)")
-        print(f"    report [--topic t] [--slug s] Detailed hint history")
-        print(f"    export                         Export as markdown")
-        print(f"    reset  [--force]               Clear behavior.jsonl\n")
+        print(f"    summary                          Print user model (agent reads at session start)")
+        print(f"    report [--topic t] [--slug s]    Detailed hint history")
+        print(f"    export                            Export as markdown")
+        print(f"    reset  [--force]                  Clear behavior.jsonl")
+        print(f"    archive [--before YYYY-MM-DD]     Archive old events\n")
         return
 
     sub = args.behavior_cmd
@@ -1451,6 +1517,50 @@ def cmd_behavior(args):
                 return
         os.remove(BEHAVIOR_FILE)
         print_success("behavior.jsonl cleared.")
+
+    elif sub == 'archive':
+        before_str = getattr(args, 'before', None)
+        if before_str:
+            try:
+                cutoff = datetime.strptime(before_str, '%Y-%m-%d').date()
+            except ValueError:
+                print_error(f"Invalid date: {before_str} (expected YYYY-MM-DD)")
+                return
+        else:
+            cutoff = (datetime.now() - timedelta(days=90)).date()
+
+        events   = load_behavior_events()
+        to_archive = []
+        to_keep    = []
+        for e in events:
+            try:
+                ts_date = datetime.fromisoformat(e['ts']).date()
+                if ts_date < cutoff:
+                    to_archive.append(e)
+                else:
+                    to_keep.append(e)
+            except (ValueError, KeyError):
+                to_keep.append(e)
+
+        if not to_archive:
+            print_info("No events older than cutoff to archive.")
+            return
+
+        # Append to archive file
+        archive_file = os.path.join(PROJECT_ROOT, 'behavior_archive.jsonl')
+        with open(archive_file, 'a') as f:
+            for e in to_archive:
+                f.write(json.dumps(e) + '\n')
+
+        # Atomic rewrite of behavior.jsonl
+        tmp_path = BEHAVIOR_FILE + '.tmp'
+        with open(tmp_path, 'w') as f:
+            for e in to_keep:
+                f.write(json.dumps(e) + '\n')
+        os.replace(tmp_path, BEHAVIOR_FILE)
+
+        print_success(f"Archived {len(to_archive)} event(s) → behavior_archive.jsonl. "
+                      f"{len(to_keep)} event(s) remain.")
 
     else:
         print_error(f"Unknown behavior subcommand: {sub}")
@@ -1661,28 +1771,48 @@ def cmd_plan(args):
             print_success("All plan days completed!")
             return
 
-        rows          = parse_memory()
-        solved_slugs  = {r['slug'] for r in rows}
-        gap_scores    = compute_gap_scores(rows, config.get('gap_overrides', {}))
-        today_date    = datetime.now().date()
-        due_reviews   = [r for r in rows
-                         if datetime.strptime(r['next_review'], '%Y-%m-%d').date() <= today_date]
+        rows         = parse_memory()
+        solved_slugs = {r['slug'] for r in rows}
+        gap_scores   = compute_gap_scores(rows, config.get('gap_overrides', {}))
+        today_date   = datetime.now().date()
+
+        # Build deduplicated due-review list (most overdue first)
+        seen = {}
+        for r in rows:
+            seen[r['slug']] = r
+        due_reviews = []
+        for slug, r in seen.items():
+            try:
+                nr = datetime.strptime(r['next_review'], '%Y-%m-%d').date()
+                if nr <= today_date:
+                    due_reviews.append((slug, r['topic'], (today_date - nr).days))
+            except ValueError:
+                pass
+        due_reviews.sort(key=lambda x: -x[2])
+
+        review_set      = {s for s, _, _ in due_reviews}
+        plan_only_slugs = [s for s in today_day.get('problems', [])
+                           if s not in review_set]
 
         print(f"\n{BOLD}Today — {target['company']} (Day {today_day['day']} of {len(plan['days'])}){RESET}\n")
-        for slug in today_day.get('problems', []):
+
+        # Reviews first
+        if due_reviews:
+            for slug, topic, overdue in due_reviews[:3]:
+                label = f"overdue {overdue}d" if overdue else "due today"
+                check = f"{GREEN}[x]{RESET}" if slug in solved_slugs else f"{YELLOW}[rev]{RESET}"
+                print(f"  {check} {slug}  {DIM}({topic} · {label}){RESET}")
+
+        # Plan-only problems
+        for slug in plan_only_slugs:
             check = f"{GREEN}[x]{RESET}" if slug in solved_slugs else "[ ]"
             topic = slug_to_topic(slug)
             gap   = gap_scores.get(topic, '')
-            if gap == 'weak':    gap_label = f" {DIM}·{RESET} {RED}{gap}{RESET}"
-            elif gap == 'unknown': gap_label = f" {DIM}·{RESET} {DIM}{gap}{RESET}"
+            if gap == 'weak':         gap_label = f" {DIM}·{RESET} {RED}{gap}{RESET}"
+            elif gap == 'unknown':    gap_label = f" {DIM}·{RESET} {DIM}{gap}{RESET}"
             elif gap == 'developing': gap_label = f" {DIM}·{RESET} {YELLOW}{gap}{RESET}"
-            else: gap_label = ''
+            else:                     gap_label = ''
             print(f"  {check} {slug}{gap_label}")
-
-        if due_reviews:
-            print(f"\n  {DIM}── SM-2 reviews due ──{RESET}")
-            for r in due_reviews[:3]:
-                print(f"  [ ] {r['slug']}  {DIM}({r['topic']} · review){RESET}")
 
         print(f"\n  {DIM}/solve <slug>  ·  /mock  ·  /behavioral{RESET}\n")
 
@@ -1879,6 +2009,108 @@ def cmd_progress(args):
 
 
 # ---------------------------------------------------------------------------
+# STATS
+# ---------------------------------------------------------------------------
+
+def cmd_stats(args):
+    rows = parse_memory()
+    if not rows:
+        print_info("No problems logged yet.")
+        return
+
+    topic_filter = getattr(args, 'topic', None)
+    if topic_filter:
+        rows = [r for r in rows if r.get('topic') == topic_filter]
+        if not rows:
+            print_info(f"No problems logged for topic: {topic_filter}")
+            return
+        print(f"\n{BOLD}Stats — {topic_filter}{RESET}")
+
+    today = datetime.now().date()
+
+    # --- Weekly solve rate (last 8 weeks, newest first) ---
+    week_counts = defaultdict(int)
+    for r in rows:
+        try:
+            d = datetime.strptime(r['date'], '%Y-%m-%d').date()
+            weeks_ago = (today - d).days // 7
+            if weeks_ago < 8:
+                week_counts[weeks_ago] += 1
+        except ValueError:
+            pass
+
+    print(f"\n{BOLD}Weekly Solve Rate{RESET} {DIM}(last 8 weeks){RESET}")
+    max_count = max(week_counts.values(), default=1)
+    bar_width  = 20
+    for w in range(7, -1, -1):
+        cnt   = week_counts.get(w, 0)
+        label = f"W-{w}" if w > 0 else "This wk"
+        bar   = '█' * int(bar_width * cnt / max_count) if max_count > 0 else ''
+        print(f"  {label:<7}  {bar:<{bar_width}}  {cnt}")
+
+    # --- Rating trend per topic ---
+    if not topic_filter:
+        topic_rows = defaultdict(list)
+        for r in rows:
+            if r.get('topic') and r.get('rating'):
+                topic_rows[r['topic']].append(r)
+        print(f"\n{BOLD}Rating Trends{RESET} {DIM}(first 3 vs last 3 attempts){RESET}")
+        for topic in sorted(topic_rows.keys()):
+            tr = topic_rows[topic]
+            if len(tr) < 3:
+                continue
+            first3 = tr[:3]
+            last3  = tr[-3:]
+            avg_first = sum(r['rating'] for r in first3) / 3
+            avg_last  = sum(r['rating'] for r in last3) / 3
+            arrow  = f"{GREEN}↑{RESET}" if avg_last > avg_first else (
+                     f"{RED}↓{RESET}" if avg_last < avg_first else f"{DIM}→{RESET}")
+            print(f"  {MAGENTA}{topic:<20}{RESET}  {avg_first:.1f} → {avg_last:.1f}  {arrow}")
+    else:
+        # Show trend for the filtered topic
+        rated = [r for r in rows if r.get('rating')]
+        if len(rated) >= 3:
+            first3 = rated[:3]
+            last3  = rated[-3:]
+            avg_first = sum(r['rating'] for r in first3) / 3
+            avg_last  = sum(r['rating'] for r in last3) / 3
+            arrow  = f"{GREEN}↑{RESET}" if avg_last > avg_first else (
+                     f"{RED}↓{RESET}" if avg_last < avg_first else f"{DIM}→{RESET}")
+            print(f"\n{BOLD}Rating Trend{RESET} ({topic_filter}): {avg_first:.1f} → {avg_last:.1f}  {arrow}")
+
+    # --- Streak stats ---
+    solve_dates = sorted({datetime.strptime(r['date'], '%Y-%m-%d').date()
+                          for r in rows if r.get('date')}, reverse=True)
+    current_streak, best_streak = 0, 0
+    if solve_dates:
+        # Current streak
+        check = today
+        for d in solve_dates:
+            if d == check or d == check - timedelta(days=1):
+                if d < check:
+                    check = d
+                current_streak += 1
+                check -= timedelta(days=1)
+            elif d < check:
+                break
+        # Best streak
+        streak, prev = 1, solve_dates[-1]
+        for d in reversed(solve_dates[:-1]):
+            if (d - prev).days == 1:
+                streak += 1
+                best_streak = max(best_streak, streak)
+            else:
+                streak = 1
+            prev = d
+        best_streak = max(best_streak, streak)
+
+    print(f"\n{BOLD}Streak{RESET}")
+    print(f"  Current: {current_streak} day{'s' if current_streak != 1 else ''}")
+    print(f"  Best:    {best_streak} day{'s' if best_streak != 1 else ''}")
+    print()
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -1980,6 +2212,9 @@ def main():
     bs.add_parser('export')
     b_reset = bs.add_parser('reset')
     b_reset.add_argument('--force', action='store_true', help='Skip confirmation prompt')
+    b_archive = bs.add_parser('archive')
+    b_archive.add_argument('--before', metavar='YYYY-MM-DD',
+                           help='Archive events older than date (default: 90 days ago)')
 
     # --- speak ---
     p_speak = sub.add_parser('speak', help='Speak text aloud (TTS)')
@@ -1993,6 +2228,10 @@ def main():
     g_set = gs.add_parser('set')
     g_set.add_argument('topic')
     g_set.add_argument('status', choices=['unknown', 'weak', 'developing', 'strong'])
+
+    # --- stats ---
+    p_stats = sub.add_parser('stats', help='Solve rate, rating trends, streak stats')
+    p_stats.add_argument('--topic', type=str)
 
     # --- plan ---
     p_plan = sub.add_parser('plan', help='Study plan management')
@@ -2024,6 +2263,7 @@ def main():
         'behavior': cmd_behavior,
         'speak':    cmd_speak,
         'gap':      cmd_gap,
+        'stats':    cmd_stats,
         'plan':     cmd_plan,
     }
     handler = commands.get(parsed.command)

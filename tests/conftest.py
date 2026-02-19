@@ -31,11 +31,31 @@ def grind():
 @pytest.fixture()
 def tmp_env(tmp_path, monkeypatch):
     """Redirect all file paths to a temp directory for isolation."""
+    # Ensure grind_paths is importable from the repo root
+    if REPO_ROOT not in sys.path:
+        sys.path.insert(0, REPO_ROOT)
+
+    patches = {
+        "PROJECT_ROOT":  str(tmp_path),
+        "MEMORY_FILE":   str(tmp_path / "memory.md"),
+        "ARCHIVE_FILE":  str(tmp_path / "memory_archive.md"),
+        "CONFIG_FILE":   str(tmp_path / ".lc_config.json"),
+        "SESSION_FILE":  str(tmp_path / ".session.json"),
+        "BEHAVIOR_FILE": str(tmp_path / "behavior.jsonl"),
+    }
+
+    # Patch the shared constants module so grind_data / grind_algos see temp paths
+    try:
+        import grind_paths
+        for attr, val in patches.items():
+            monkeypatch.setattr(grind_paths, attr, val)
+    except ImportError:
+        pass  # grind_paths not yet split out — no-op
+
     g = import_grind()
-    monkeypatch.setattr(g, "PROJECT_ROOT", str(tmp_path))
-    monkeypatch.setattr(g, "MEMORY_FILE", str(tmp_path / "memory.md"))
-    monkeypatch.setattr(g, "ARCHIVE_FILE", str(tmp_path / "memory_archive.md"))
-    monkeypatch.setattr(g, "CONFIG_FILE", str(tmp_path / ".lc_config.json"))
-    monkeypatch.setattr(g, "SESSION_FILE", str(tmp_path / ".session.json"))
-    monkeypatch.setattr(g, "BEHAVIOR_FILE", str(tmp_path / "behavior.jsonl"))
+
+    # Also patch g directly (monolith grind keeps its own module-level constants)
+    for attr, val in patches.items():
+        monkeypatch.setattr(g, attr, val)
+
     return g, tmp_path

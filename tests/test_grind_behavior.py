@@ -193,3 +193,56 @@ def test_load_behavior_events_matches_flush(tmp_env):
     assert len(loaded) == 2
     assert loaded[0]["event"] == "hint_given"
     assert loaded[1]["event"] == "hint_assessed"
+
+
+# --- Behavior archive tests ---
+
+def test_behavior_archive_moves_old_events(tmp_env):
+    import json as _json
+    g, tmp = tmp_env
+    events = [
+        {"ts": "2025-10-01T10:00:00", "event": "hint_given", "topic": "dp"},
+        {"ts": "2026-02-15T10:00:00", "event": "hint_given", "topic": "arrays"},
+    ]
+    g.flush_behavior_events({"hint_events": events})
+
+    import argparse
+    g.cmd_behavior(argparse.Namespace(behavior_cmd='archive', before='2026-01-01'))
+
+    archive = tmp / "behavior_archive.jsonl"
+    assert archive.exists()
+    archived = [_json.loads(l) for l in archive.read_text().strip().splitlines()]
+    assert len(archived) == 1
+    assert archived[0]["topic"] == "dp"
+
+    remaining = g.load_behavior_events()
+    assert len(remaining) == 1
+    assert remaining[0]["topic"] == "arrays"
+
+
+def test_behavior_archive_default_90_days(tmp_env):
+    g, tmp = tmp_env
+    from datetime import datetime, timedelta
+    old_ts   = (datetime.now() - timedelta(days=100)).isoformat()
+    fresh_ts = (datetime.now() - timedelta(days=10)).isoformat()
+    events = [
+        {"ts": old_ts,   "event": "hint_given", "topic": "dp"},
+        {"ts": fresh_ts, "event": "hint_given", "topic": "arrays"},
+    ]
+    g.flush_behavior_events({"hint_events": events})
+
+    import argparse
+    g.cmd_behavior(argparse.Namespace(behavior_cmd='archive', before=None))
+    remaining = g.load_behavior_events()
+    assert len(remaining) == 1
+    assert remaining[0]["topic"] == "arrays"
+
+
+def test_behavior_archive_atomic_rewrite(tmp_env):
+    g, tmp = tmp_env
+    events = [{"ts": "2025-01-01T00:00:00", "event": "hint_given", "topic": "dp"}]
+    g.flush_behavior_events({"hint_events": events})
+    import argparse
+    g.cmd_behavior(argparse.Namespace(behavior_cmd='archive', before=None))
+    # No .tmp leftover
+    assert not (tmp / "behavior.jsonl.tmp").exists()
